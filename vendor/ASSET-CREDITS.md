@@ -2,6 +2,8 @@
 
 本项目作者：**Useradmin236**。六颗行星的地貌、背景、程序几何和界面由本项目提供；截图是项目实际 Three.js 渲染结果。虚构天体外观并非天文观测影像。
 
+本项目原创素材采用 [MIT License](../LICENSE)。下列第三方素材及其衍生部分继续适用各自许可证；项目的 MIT 许可不替代这些许可。
+
 | 组件或素材 | 来源 | 许可与修改 |
 | --- | --- | --- |
 | Three.js、本地 OrbitControls | [Three.js](https://threejs.org/) | MIT，见 [THREE-LICENSE.txt](THREE-LICENSE.txt) |

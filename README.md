@@ -55,6 +55,6 @@ npm test
 
 ## 作者与素材许可
 
-项目署名为 **Useradmin236**。本仓库公开展示源码，原创代码与素材的其他使用授权由作者决定；未另行授予开源许可证。
+项目署名为 **Useradmin236**。原创代码、文档与原创素材采用 [MIT License](LICENSE) 开源，允许使用、修改、分发及商业使用，须保留版权声明与许可证。
 
 第三方组件与素材保留各自许可：Three.js 与 simplex-noise 使用 MIT，Noto Serif SC 使用 SIL Open Font License，部分云、卫星和环纹理来自 Solar System Scope（CC BY 4.0）。来源、修改说明及许可文件见 [素材来源](vendor/ASSET-CREDITS.md)。

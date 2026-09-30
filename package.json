@@ -4,6 +4,7 @@
   "private": true,
   "description": "瑶光星系：可交互的 Three.js 深空观测台",
   "author": "Useradmin236",
+  "license": "MIT",
   "scripts": {
     "test": "node tests/run.cjs",
     "test:logic": "node tests/discoveries.cjs",

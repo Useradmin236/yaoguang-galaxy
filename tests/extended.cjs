@@ -1,0 +1,32 @@
+const BASE=process.env.PREVIEW_URL||'http://127.0.0.1:43178';
+
+const {chromium}=require('@playwright/test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+(async()=>{
+ const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+ const ctx=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce',permissions:['clipboard-read','clipboard-write']});
+ const p=await ctx.newPage();
+ const outbound=[];await p.route('**/*',route=>{if(!route.request().url().startsWith(BASE)){outbound.push(route.request().url());return route.abort();}return route.continue();});
+ await p.goto(BASE);await p.locator('#loading.done').waitFor();
+ const time=await p.evaluate(()=>observatory.time);await p.waitForTimeout(300);assert.equal(await p.evaluate(()=>observatory.time),time);
+ await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.activeElement.className),'skip');
+ await p.keyboard.press('Enter');await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.activeElement.dataset.id),'jixi');
+ await p.keyboard.press('Enter');assert.equal(await p.evaluate(()=>observatory.mode),'system');await p.locator('#visit').click();assert.equal(await p.evaluate(()=>observatory.mode),'planet');
+ await p.locator('#planet-nav button[data-id="lingxi"]').click();assert.equal(await p.evaluate(()=>observatory.mode),'planet');
+ await p.locator('#satellites button').nth(1).click();
+ await p.locator('#moon-action button').click();assert.equal(await p.evaluate(()=>navigator.clipboard.readText()),'https://example.com/lingxi/v1');
+ await p.goBack();assert.equal(await p.evaluate(()=>observatory.mode),'planet');
+ await p.locator('#clean').click();assert.equal(await p.locator('#details').evaluate(e=>e.inert),true);await p.keyboard.press('Escape');assert.equal(await p.locator('#details').evaluate(e=>e.inert),false);
+ for(const path of ['/config.json','/docs/DESIGN.md','/server.py','/node_modules/three/package.json'])assert.equal((await p.request.get(BASE+path)).status(),404);
+ assert.equal(outbound.length,0);
+ const mobile=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});await mobile.goto(BASE);await mobile.locator('#loading.done').waitFor();await mobile.screenshot({path:'artifacts/04-mobile-system.png'});
+ await mobile.locator('#planet-nav button[data-id="suxian"]').click();await mobile.locator('#visit').click();await mobile.waitForTimeout(500);await mobile.screenshot({path:'artifacts/04-mobile-ring.png'});
+ assert.equal(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await browser.close();
+ const noGpu=await chromium.launch({headless:true,args:['--disable-webgl']});const fallback=await noGpu.newPage();await fallback.goto(BASE);await fallback.locator('#fallback').waitFor({state:'visible'});
+ assert.equal(await fallback.locator('#planet-nav button').count(),6);await fallback.locator('#nav-toggle').click();assert.equal(await fallback.locator('#service-links a').count(),5);
+ await fallback.locator('#planet-nav button[data-id="lingxi"]').click();assert.equal(await fallback.locator('#planet-action a').getAttribute('href'),'https://example.com/lingxi');
+ await noGpu.close();
+ fs.writeFileSync('artifacts/extended-results.json',JSON.stringify({passed:true,checks:['reduced motion stops time','real keyboard navigation','API clipboard','browser history','immersive keyboard escape','private file 404','no external runtime requests','390px overview and rings','WebGL fallback navigation']},null,2));console.log('PASS: extended interaction, offline, fallback and privacy checks');
+})().catch(e=>{console.error(e);process.exit(1)});

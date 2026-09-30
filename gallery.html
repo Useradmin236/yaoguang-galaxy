@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="color-scheme" content="dark"><meta name="robots" content="noindex,nofollow">
+ <title>瑶光 · 四种观看方式</title><link rel="icon" href="favicon.svg">
+ <style>
+ @font-face{font-family:Yaoguang;src:url('vendor/yaoguang.woff2');font-display:swap}
+ *{box-sizing:border-box}body{margin:0;background:#060813;color:#dce6ee;font:14px/1.8 'Segoe UI','Microsoft YaHei',sans-serif}
+ a{color:inherit;text-decoration:none}button{font:inherit}a:focus-visible,button:focus-visible{outline:2px solid #c3dbef;outline-offset:5px}
+ .wrap{max-width:1320px;margin:auto;padding:44px 36px}header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:36px}
+ .brand{font:40px Yaoguang,SimSun,serif;letter-spacing:9px}header p{color:#8ea1b4;font-size:11px;margin:8px 0 0}
+ .back{font-size:12px;color:#b6cada;border-bottom:1px solid #8ba6be55}.intro h1{font-weight:400;font-size:24px;letter-spacing:2px;margin:0 0 8px}
+ .intro p{font-size:12px;color:#9cabbc;margin:0;max-width:760px}.controls{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin:25px 0 24px}
+ .views{display:flex;flex-wrap:wrap;gap:6px}.views button{border:1px solid transparent;color:#91a8ba;background:transparent;padding:6px 13px;cursor:pointer;font-size:12px;border-radius:3px}
+ .views button[aria-pressed=true]{border-color:#b7cce445;background:#b7cce40a;color:#e2eaf0}.views button:hover{color:#fff}
+ #comparison{font-size:12px;color:#b6cada;text-decoration:underline;text-underline-offset:4px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:34px 28px}.look{min-width:0}
+ .preview{display:block;position:relative;background:#03060b;overflow:hidden;border:1px solid #b7cce421;border-radius:3px;aspect-ratio:3/2}
+ .preview img{width:100%;height:100%;object-fit:contain;transition:filter .25s}.preview:hover img{filter:brightness(1.12)}
+ .caption{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:16px 0 6px}.caption h2{font-weight:400;font-size:18px;margin:0;letter-spacing:2px}
+ .caption>a{font-size:11px;color:#bbd5e8;border-bottom:1px solid #91adc45e;white-space:nowrap}.look p{font-size:12px;color:#9cabbc;margin:0;line-height:1.9}
+ .links{display:flex;gap:17px;flex-wrap:wrap;margin-top:9px;color:#b1c5d5;font-size:11px}.links a:hover{color:#fff}
+ .current{font-size:10px;margin-left:10px;letter-spacing:0;color:#91b0c4}footer{margin-top:42px;border-top:1px solid #9ebbd626;padding-top:17px;font-size:10px;color:#899dae;display:flex;justify-content:space-between;gap:15px}
+ .credits a{text-decoration:underline;text-underline-offset:3px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+ @media(max-width:700px){.wrap{padding:28px 20px}.grid{grid-template-columns:1fr;gap:33px}header{margin-bottom:30px}.brand{font-size:33px}.intro h1{font-size:21px}.views{gap:3px}.views button{padding:6px 9px}footer{display:block}.caption h2{font-size:17px}}
+ @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+ </style>
+</head>
+<body><div class="wrap">
+ <header><div><a class="brand" href="./?style=observatory">瑶光</a><p>六颗行星，同一片星空。</p></div><a class="back" href="./?style=observatory">进入观测台 ↗</a></header>
+ <div class="intro"><h1>四种观看方式</h1><p>观测台修订版与三种视觉探索。下方是实际 3D 页面截图，可切换同一场景比较；进入预览后可以环绕、靠近行星和选择功能卫星。</p></div>
+ <div class="controls">
+  <div class="views" role="group" aria-label="选择对比视角">
+   <button type="button" data-view="system" aria-pressed="true">星系全景</button>
+   <button type="button" data-view="lingxi" aria-pressed="false">聆汐近景</button>
+   <button type="button" data-view="suxian" aria-pressed="false">素霰环系</button>
+   <button type="button" data-view="mobile" aria-pressed="false">手机视图</button>
+  </div>
+  <a id="comparison" href="vendor/previews/compare-system.jpg" target="_blank" rel="noopener">打开四版对比大图 ↗</a>
+ </div>
+ <p id="view-status" class="sr-only" role="status" aria-live="polite">当前对比：星系全景</p>
+ <main class="grid">
+  <article class="look" data-style="observatory" data-name="瑶光观测台">
+   <a class="preview" href="vendor/previews/observatory-system.webp" target="_blank" rel="noopener" aria-label="放大瑶光观测台星系全景截图"><img src="vendor/previews/observatory-system.webp" alt="瑶光观测台：星系全景实际截图" width="1440" height="960"></a>
+   <div class="caption"><h2>瑶光观测台<span class="current">修订版</span></h2><a class="enter" href="./?style=observatory">进入 3D 预览 ↗</a></div>
+   <p>安静的深空观测界面。小型项目栏、按需说明卡、原创地貌与淡银河，让星系回到画面中心。</p>
+   <div class="links"><a href="./?style=observatory#lingxi">看聆汐群岛</a><a href="./?style=observatory#suxian">看素霰环系</a></div>
+  </article>
+  <article class="look" data-style="cinema" data-name="静谧远航">
+   <a class="preview" href="vendor/previews/cinema-system.webp" target="_blank" rel="noopener" aria-label="放大静谧远航星系全景截图"><img src="vendor/previews/cinema-system.webp" alt="静谧远航：星系全景实际截图" width="1440" height="960"></a>
+   <div class="caption"><h2>静谧远航</h2><a class="enter" href="./?style=cinema">进入 3D 预览 ↗</a></div>
+   <p>更低的航行视角，更深的夜面与更少的界面。接近天体时，光照和尺度成为主要叙事。</p>
+   <div class="links"><a href="./?style=cinema#lingxi">接近聆汐</a><a href="./?style=cinema#suxian">观察环系</a></div>
+  </article>
+  <article class="look" data-style="atlas" data-name="星图档案">
+   <a class="preview" href="vendor/previews/atlas-system.webp" target="_blank" rel="noopener" aria-label="放大星图档案星系全景截图"><img src="vendor/previews/atlas-system.webp" alt="星图档案：星系全景实际截图" width="1440" height="960"></a>
+   <div class="caption"><h2>星图档案</h2><a class="enter" href="./?style=atlas">进入 3D 预览 ↗</a></div>
+   <p>以测绘的眼光阅读星系。俯视构图、轨道刻度、球面经纬网与蓝灰材质，像翻开一册深空档案。</p>
+   <div class="links"><a href="./?style=atlas#lingxi">查看球面测绘</a><a href="./?style=atlas#suxian">查看环系结构</a></div>
+  </article>
+  <article class="look" data-style="nebula" data-name="星云梦境">
+   <a class="preview" href="vendor/previews/nebula-system.webp" target="_blank" rel="noopener" aria-label="放大星云梦境星系全景截图"><img src="vendor/previews/nebula-system.webp" alt="星云梦境：星系全景实际截图" width="1440" height="960"></a>
+   <div class="caption"><h2>星云梦境</h2><a class="enter" href="./?style=nebula">进入 3D 预览 ↗</a></div>
+   <p>更浓郁的蓝紫色尘云与柔光。保持可辨认的天体结构，让背景带来更有想象力的宇宙氛围。</p>
+   <div class="links"><a href="./?style=nebula#lingxi">漫游聆汐</a><a href="./?style=nebula#suxian">漫游素霰</a></div>
+  </article>
+ </main>
+ <footer><span>独立预览 · 示例入口 · 截图更新于 2026-09-30</span><span class="credits">天体地貌原创生成；云、卫星与环纹理含 <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">Solar System Scope</a> <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a> 素材。</span></footer>
+</div>
+<script>
+ const views={system:'星系全景',lingxi:'聆汐近景',suxian:'素霰环系',mobile:'手机视图'};
+ function selectView(view){
+  if(!Object.hasOwn(views,view))view='system';
+  document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.view===view)));
+  document.querySelectorAll('.look').forEach(card=>{
+   const src=`vendor/previews/${card.dataset.style}-${view}.webp`,preview=card.querySelector('.preview'),img=preview.querySelector('img');
+   preview.href=src;preview.setAttribute('aria-label',`放大${card.dataset.name}${views[view]}截图`);img.src=src;img.alt=`${card.dataset.name}：${views[view]}实际截图`;
+   card.querySelector('.enter').href=`./?style=${card.dataset.style}${view==='system'?'':'#'+(view==='mobile'?'suxian':view)}`;
+  });
+  document.getElementById('comparison').href=`vendor/previews/compare-${view}.jpg`;
+  document.getElementById('view-status').textContent=`当前对比：${views[view]}`;
+ }
+ document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>{selectView(button.dataset.view);history.replaceState(null,'','#'+button.dataset.view);}));
+ selectView(location.hash.slice(1));
+</script>
+</body></html>

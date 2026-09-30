@@ -1,0 +1,39 @@
+{
+  "resolution": [
+    2048,
+    1024
+  ],
+  "source": "original spherical noise, no Earth maps",
+  "worlds": [
+    {
+      "id": "jixi",
+      "seed": 711,
+      "waterFraction": 0.2531
+    },
+    {
+      "id": "lingxi",
+      "seed": 1351,
+      "waterFraction": 0.8242
+    },
+    {
+      "id": "xunqi",
+      "seed": 5168,
+      "waterFraction": 0.4749
+    },
+    {
+      "id": "qitang",
+      "seed": 726,
+      "waterFraction": 0.1229
+    },
+    {
+      "id": "suxian",
+      "seed": 381,
+      "waterFraction": 0
+    },
+    {
+      "id": "mingai",
+      "seed": 271,
+      "waterFraction": null
+    }
+  ]
+}

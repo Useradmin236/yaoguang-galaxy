@@ -61,6 +61,11 @@ const mark=name=>{report.checks.push(name);console.log('PASS '+name);};
    assert.equal(await page.locator('#sky-event-status').isVisible(),true);
    report[event]=await page.evaluate(()=>__skyTest.scene.getObjectByName('Sky phenomena')?.children.filter(o=>o.visible).map(o=>o.name));
    assert.ok(report[event]?.includes(event),'the effect must be rendered in the scene');
+   if(event==='constellation'){
+    // Breadcrumb dipper (review A): the egg's seven stars, no Alkaid ring, last star faint while 08 is unearned.
+    report.dipper=await page.evaluate(()=>{const g=__skyTest.scene.getObjectByName('constellation'),p=g.getObjectByName('Dipper chart points');return{stars:p.geometry.attributes.position.count,rings:g.children.filter(o=>o.type==='LineLoop').length,lit:p.material.uniforms.uLit.value};});
+    assert.deepEqual(report.dipper,{stars:7,rings:0,lit:0});
+   }
    await shot('desktop-'+event);mark(event+' renders a real celestial effect');
    await page.locator('#sky-event-stop').click();
   }

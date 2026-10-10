@@ -29,7 +29,7 @@ function run(file,args,env){return new Promise((resolve,reject)=>{
    await delay(100);
   }
   if(!ready)throw Error('Preview server failed to start');
-  for(const [file,args] of [['discoveries.cjs',[]],['extended.cjs',[]],['revision2.cjs',[]],['sky-navigation.cjs',[]],['looks.cjs',[]],['gallery.cjs',[]]]){
+  for(const [file,args] of [['discoveries.cjs',[]],['eggs.cjs',['--browser']],['extended.cjs',[]],['revision2.cjs',[]],['sky-navigation.cjs',[]],['looks.cjs',[]],['gallery.cjs',[]]]){
    await run(path.join('tests',file),args,env);
   }
   console.log('PASS all public demo checks');

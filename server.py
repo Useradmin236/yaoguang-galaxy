@@ -10,7 +10,7 @@ class Handler(SimpleHTTPRequestHandler):
     def allowed(self):
         path = urlsplit(self.path).path
         candidate = Path(self.translate_path(path)).resolve()
-        named = path in ('/', '/index.html', '/style.css', '/app.js', '/data.js', '/materials.js', '/looks.js', '/looks.css', '/gallery.html', '/favicon.svg', '/discoveries.js', '/discovery.css')
+        named = path in ('/', '/index.html', '/style.css', '/app.js', '/data.js', '/materials.js', '/looks.js', '/looks.css', '/gallery.html', '/favicon.svg', '/discoveries.js', '/discovery.css', '/dust.js', '/intro.js', '/eggs.js', '/eggs.css')
         vendor = candidate.is_relative_to(ROOT / 'vendor') and candidate.is_file()
         return named or vendor
     def do_GET(self):

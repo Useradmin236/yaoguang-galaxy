@@ -8,7 +8,11 @@
 | `data.js` | 瑶光、六颗行星与十四颗卫星的数据 |
 | `materials.js` | 表面、云层、大气和环系材质 |
 | `looks.js` / `looks.css` | 四种观看风格 |
-| `discoveries.js` / `discovery.css` | 观测手记与探索反馈 |
+| `discoveries.js` / `discovery.css` | 观测手记、天象奖励与探索反馈 |
+| `eggs.js` / `eggs.css` | 后四则手记（灯火、晨昏线、漂流、第七星）的触发与重看 |
+| `intro.js` | 开场序列与全景闲置漂移 |
+| `dust.js` | 多层视差星际尘埃 |
+| `vendor/postprocessing/`、`vendor/shaders/` | 来自 three `examples/jsm` 的 HDR 后期链（泛光、输出通道） |
 | `gallery.html` | 实际渲染截图对比 |
 | `vendor/` | 本地依赖、字体、纹理、肖像与预览 |
 | `tools/` | 离线纹理和截图生成器 |

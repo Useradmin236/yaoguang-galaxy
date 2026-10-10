@@ -1,0 +1,9 @@
+/* Late field notes: the "all collected" star on the journal button and the second chapter divider.
+   The running total (#journal-tally) now lives inside the journal; see discovery.css.
+   Uses the UI polish variable set (--fs-xs, --muted, --soft) so it follows each look. */
+#journal-toggle[data-complete=true] .journal-count:after{content:'✦';margin-left:3px;font-size:9px;color:var(--accent,#d6ecf4);text-shadow:0 0 5px color-mix(in srgb,var(--accent,#9fd0e8) 50%,transparent)}
+.journal-summary-late{margin-top:6px}
+.journal-chapter{margin:4px 0 -8px;padding-top:16px;border-top:1px solid var(--line,#9eb7c51f);font:var(--fs-xs,10px)/1.7 Consolas,'Microsoft YaHei',monospace;letter-spacing:2.2px;color:var(--muted,#7f9cad)}
+#journal-entries article[data-discovery=seventh][data-unlocked=true] .journal-number{color:#b6d0ff;text-shadow:0 0 6px #8fb6ff66}
+@media(max-width:760px){.journal-chapter{padding-top:12px}}
+@media(prefers-reduced-motion:reduce){#journal-toggle[data-complete=true] .journal-count:after{text-shadow:none}}

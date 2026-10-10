@@ -5,6 +5,7 @@
  <meta name="color-scheme" content="dark">
  <title>瑶光星系 · 深空观测台</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="looks.css">
  <link rel="stylesheet" href="discovery.css">
+ <link rel="stylesheet" href="eggs.css">
  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
@@ -16,24 +17,24 @@
   <p class="stellar-fact">B3V <span>16,800 K</span><button id="star-info">认识瑶光</button></p>
  </header>
  <div id="look-switch"><button id="look-toggle" aria-expanded="false" aria-controls="look-menu">切换风格</button><div id="look-menu" hidden><nav id="look-links" aria-label="预览风格"></nav><a class="gallery-link" href="gallery.html">查看全部预览 ↗</a></div></div>
- <nav id="services" aria-label="直接进入项目"><button id="nav-toggle" aria-expanded="false" aria-controls="service-links" aria-label="展开项目入口"><span>☷</span><span class="rail-caption">项目直达</span></button><div id="service-links"><a href="https://example.com/jixi" target="_blank" rel="noopener noreferrer">霁晞 · 示例服务 ↗</a><a href="https://example.com/mingai" target="_blank" rel="noopener noreferrer">暝霭 · 示例服务 ↗</a><a href="https://example.com/lingxi" target="_blank" rel="noopener noreferrer">聆汐 · 示例服务 ↗</a><a href="https://example.com/xunqi" target="_blank" rel="noopener noreferrer">浔萋 · 示例画廊 ↗</a><a href="https://example.com/qitang" target="_blank" rel="noopener noreferrer">栖棠 · 示例工作台 ↗</a></div><p class="rail-note">公开演示 · 示例入口</p></nav>
+ <nav id="services" aria-label="直接进入项目"><button id="nav-toggle" aria-expanded="false" aria-controls="service-links" aria-label="展开项目入口"><span>☷</span><span class="rail-caption">项目直达</span></button><div id="service-links"><a href="https://example.com/jixi" target="_blank" rel="noopener noreferrer">霁晞 · 示���服务 ↗</a><a href="https://example.com/mingai" target="_blank" rel="noopener noreferrer">暝霭 · 示例服务 ↗</a><a href="https://example.com/lingxi" target="_blank" rel="noopener noreferrer">聆汐 · 示例服务 ↗</a><a href="https://example.com/xunqi" target="_blank" rel="noopener noreferrer">浔萋 · 示例画廊 ↗</a><a href="https://example.com/qitang" target="_blank" rel="noopener noreferrer">栖棠 · 示例工作台 ↗</a></div><p class="rail-note">公开演示 · 示例入口</p></nav>
  <main id="details">
   <div class="breadcrumb"><button id="back" hidden>‹ 返回行星</button><span id="eyebrow">第七星 · B3V</span><button id="close-card" aria-label="关闭说明">×</button></div>
   <figure id="portrait-wrap"><img id="portrait" width="440" height="240" alt=""><figcaption id="portrait-caption"></figcaption></figure>
   <h1 id="title">瑶光星系</h1><p id="subtitle">循光而行，万象有栖。</p>
   <p id="description">六颗行星，环绕同一束光。<br>选择一颗星球，走近它的世界。</p>
-  <div id="facts" class="facts"><div><span>母恒星</span><strong>瑶光 Alkaid</strong></div><div><span>光谱温度</span><strong>16,800 <small>K</small></strong></div><div><span>行星系统</span><strong>06 <small>颗行星</small></strong></div></div>
-  <p id="world-note" class="note">虚构星系设定 · 公转按 6.1 个太阳质量推算；画面距离与尺寸经压缩。</p>
-  <button id="visit" class="visit-button" hidden>前往行星 · 查看详情 <span>↗</span></button>
+  <div id="facts" class="facts"><div><span>母恒星</span><strong>瑶光 Alkaid</strong></div><div><span>表面温度</span><strong>16,800 <small>K</small></strong></div><div><span>行星系统</span><strong>06 <small>颗行星</small></strong></div></div>
+  <p id="world-note" class="note">虚构星系设定 · 公转按 6.1 个太阳质量推算；光照、气候与画面尺度均为艺术处理。</p>
+  <button id="visit" class="visit-button" hidden>前往行星 <span>→</span></button>
   <div id="planet-action" hidden></div>
   <section id="moon-section" hidden><div class="section-line"><h2>伴行之月</h2><span id="moon-count"></span></div><div id="satellites"></div></section>
   <div id="moon-card" hidden><p id="moon-description"></p><div id="moon-action"></div></div>
-  <button id="explore" class="text-button">从聆汐开始探索 <span>↗</span></button>
+  <button id="explore" class="text-button">从聆汐开始探索 →</button>
  </main>
- <div class="view-meta"><span id="view-label">星系全景</span><span id="scale-label">导航尺度</span></div>
+ <div class="view-meta"><span id="view-label">星系全景</span><span id="scale-label">示意比例</span></div>
  <div id="fallback" role="status" hidden>三维画面暂时无法显示，仍可使用星球导航和项目入口。</div>
  <div id="asset-warning" role="status" hidden><span>部分星图素材尚未加载，可先使用项目入口。</span><button id="retry-assets">重试加载</button></div>
- <div id="loading"><span class="loader-orbit"></span><span>正在展开星图</span></div>
+ <div id="loading"><span class="loader-light" aria-hidden="true"><i></i></span><span>正在展开星图</span></div>
  <button id="play-toggle" aria-controls="play-panel" aria-expanded="false">☷ <span>星系实验室</span></button>
  <aside id="play-panel" aria-label="星系实验室" hidden>
   <div class="play-heading"><h2>星系实验室</h2><button id="play-close" aria-label="关闭实验室">×</button></div>
@@ -51,7 +52,7 @@
   <div class="control-rule"></div>
   <div class="play-actions"><button id="summon-comet">唤来彗星</button><button id="sister-stars">蒹葭回响</button><button id="top-view">俯瞰星系</button></div>
   <div class="control-rule"></div><p class="control-note">在银河里，偶遇四种光。</p>
-  <div class="play-actions sky-actions"><button id="meteor-shower">等一场流星雨</button><button id="trace-constellation">寻找第七星</button><button id="polar-lights">聆汐的极光</button><button id="ice-signal">冰下的回信</button></div>
+  <div class="play-actions sky-actions"><button id="meteor-shower">等一场流星雨</button><button id="trace-constellation">寻找北斗</button><button id="polar-lights">聆汐的极光</button><button id="ice-signal">冰下的信号</button></div>
   <p id="discovery-note" aria-live="polite" class="control-note">有些故事，藏在星星的名字里。</p>
   <button id="reset-settings" class="text-button">恢复全部默认</button><p class="control-note">调整仅保存在本机浏览器。</p>
  </aside>

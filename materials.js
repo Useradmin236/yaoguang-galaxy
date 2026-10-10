@@ -9,6 +9,10 @@ float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*noise3(p);p=p*2.03+v
 const vertex=`varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;varying vec2 vUv;
 void main(){vUv=uv;vLocal=position;vNormal=normalize(mat3(modelMatrix)*normal);vWorld=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);}`;
 
+// 1 while the HDR post-processing chain is active: star, corona and atmosphere
+// output values above 1.0 so the bloom pass can pick them up. 0 for the direct
+// LDR path, which keeps the original tone-mapped look.
+export const hdrBoost={value:0};
 const loader=new THREE.TextureLoader();
 const textures={};
 function texture(name,color=true){
@@ -18,14 +22,39 @@ function texture(name,color=true){
 }
 const maps=['2k_earth_daymap.webp','2k_jupiter.webp','2k_earth_daymap.webp','2k_moon.webp','2k_mercury.webp','2k_earth_daymap.webp','2k_venus_surface.webp'];
 
+// Cloud density is shared between a planet's surface (cloud shadows) and its
+// cloud shell, so the lab slider that writes clouds.uDensity also moves shadows.
+const cloudDensity=new WeakMap();
+function densityUniform(def){let u=cloudDensity.get(def);if(!u){u={value:def.cloud||0};cloudDensity.set(def,u);}return u;}
+// Settlement lights per world kind: [strength, cluster threshold]. Kind 2 only
+// gets a few sparse island points; worlds not listed stay dark.
+const CITY={2:[.6,.66],5:[.85,.6],6:[.8,.62]};
+// Shell radius / planet radius used by app.js for the atmosphere mesh.
+const SHELL=1.035;
+// Surface rotates at time*.015, clouds at time*.019 (app.js moveBodies).
+const CLOUD_DRIFT=.004/(Math.PI*2);
+
+const surfaceVertex=`uniform vec3 uLight;varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;varying vec2 vUv;varying vec3 vLightLocal;
+void main(){vUv=uv;vLocal=position;vNormal=normalize(mat3(modelMatrix)*normal);vWorld=(modelMatrix*vec4(position,1.)).xyz;
+vLightLocal=transpose(mat3(modelMatrix))*(uLight-vWorld);gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);}`;
+
 export function surfaceMaterial(def, lightPosition){
  const custom=!!def.id;
- const mat=new THREE.ShaderMaterial({uniforms:{uKind:{value:def.kind},uSeed:{value:def.seed||3},uLight:{value:lightPosition},uTime:{value:0},uCloud:{value:def.cloud||0},uRing:{value:def.ring||0},uPalette:{value:new THREE.Vector3(...LOOK.palette)},uDiagram:{value:LOOK.diagram},uCustom:{value:custom?1:0},uRelief:{value:texture(custom?'worlds/'+def.id+'-relief.webp':'2k_moon.webp',false)},uMap:{value:texture(custom?'worlds/'+def.id+'-albedo.webp':maps[def.kind]||maps[3])},uColor:{value:new THREE.Color(def.color||'#b5aaa0')}},vertexShader:vertex,fragmentShader:`
+ const hasCloud=custom&&!!(def.original?def.original.cloud:def.cloud);
+ const city=custom&&CITY[def.kind]||[0,1];
+ const relief=texture(custom?'worlds/'+def.id+'-relief.webp':'2k_moon.webp',false);
+ const mat=new THREE.ShaderMaterial({uniforms:{uKind:{value:def.kind},uSeed:{value:def.seed||3},uLight:{value:lightPosition},uTime:{value:0},uCloud:densityUniform(def),uRing:{value:def.ring||0},uPalette:{value:new THREE.Vector3(...LOOK.palette)},uDiagram:{value:LOOK.diagram},uCustom:{value:custom?1:0},uRelief:{value:relief},uMap:{value:texture(custom?'worlds/'+def.id+'-albedo.webp':maps[def.kind]||maps[3])},uColor:{value:new THREE.Color(def.color||'#b5aaa0')},
+  uHdr:hdrBoost,uClouds:{value:hasCloud?texture('worlds/'+def.id+'-clouds.webp',false):relief},uHasCloud:{value:hasCloud?1:0},uDrift:{value:CLOUD_DRIFT},
+  uTint:{value:new THREE.Color(custom&&def.atmosphere||'#000000')},uAtmo:{value:custom&&def.atmosphere?1:0},uCity:{value:city[0]},uCityLo:{value:city[1]}},vertexShader:surfaceVertex,fragmentShader:`
 precision highp float;
-varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;varying vec2 vUv;
-uniform sampler2D uMap,uRelief;
-uniform float uKind,uSeed,uTime,uCloud,uRing,uCustom,uDiagram;uniform vec3 uLight,uColor,uPalette;
+varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;varying vec2 vUv;varying vec3 vLightLocal;
+uniform sampler2D uMap,uRelief,uClouds;
+uniform float uKind,uSeed,uTime,uCloud,uRing,uCustom,uDiagram,uHdr,uHasCloud,uDrift,uAtmo,uCity,uCityLo;uniform vec3 uLight,uColor,uPalette,uTint;
 ${noise}
+// Sphere direction -> SphereGeometry uv (u from atan(z,-x), v=1-theta/pi).
+vec2 sphereUv(vec3 d){return vec2(atan(d.z,-d.x)*.1591549,1.-acos(clamp(d.y,-1.,1.))*.3183099);}
+// Terminator tint: violet just past the shadow line, warm just before it.
+vec3 dusk(float sc){return mix(vec3(.42,.30,.85),vec3(1.,.50,.26),smoothstep(-.16,.08,sc));}
 void main(){
 vec3 p=normalize(vLocal);vec3 q=p*3.2+uSeed;
 vec2 uv=vec2(vUv.x+uSeed*.031,vUv.y);vec3 photo=texture2D(uMap,uv).rgb;vec3 terrainData=texture2D(uRelief,uv).rgb;
@@ -71,8 +100,47 @@ float shadow=1.;
 // Geometric approximation of rings casting a shadow over the surface.
 if(uRing>.0){vec3 localL=normalize(vec3(L.x,L.y,L.z));float t=-p.y/(localL.y+.0001);vec3 hit=p+localL*t;float radius=length(hit.xz);shadow=1.-step(0.,t)*smoothstep(1.34,1.5,radius)*(1.-smoothstep(2.18,2.38,radius))*.38*uRing;}
 float terminator=smoothstep(-.15,.22,dotLight);
-vec3 lit=color*(.032+diffuse*1.12*shadow)*vec3(.88,.96,1.06)+vec3(.66,.82,1.)*spec*terminator;
+// Cloud shadows: sample the cloud map where the ray towards the light pierces
+// an (exaggerated) cloud altitude, in the cloud shell's rotated frame. The uv
+// delta is wrapped so the atan seam does not break texture derivatives.
+if(uHasCloud>.5){
+ vec3 Ll=normalize(vLightLocal);float facing=dot(p,Ll);
+ vec3 pc=normalize(p+Ll*(.03/max(facing,.18)));
+ vec2 d=sphereUv(pc)-sphereUv(p);d.x=fract(d.x+.5)-.5;
+ vec2 cuv=vec2(vUv.x+d.x-uTime*uDrift+uSeed*.067,vUv.y+d.y);
+ float c=texture2D(uClouds,cuv,1.2).r;
+ float cover=smoothstep(.16,.97,c)*min(uCloud*1.35,1.);
+ shadow*=1.-cover*.62*smoothstep(-.05,.25,facing);
+}
+vec3 lit=color*(.032+diffuse*1.12*shadow)*vec3(.88,.96,1.06)+vec3(.66,.82,1.)*spec*terminator*shadow;
 lit+=vec3(.0012,.0035,.006)*water*diffuse;
+vec3 Ng=normalize(vNormal);float sc=dot(Ng,L);
+// Settlement lights: clustered noise on land in the night hemisphere.
+if(uCity>0.){
+ float land=1.-smoothstep(.2,.55,terrainData.g);
+ float night=1.-smoothstep(-.12,.07,sc);
+ // Settlements favour coasts: a heavily mip-biased water lookup acts as a
+ // cheap local water fraction, i.e. proximity to a shore.
+ float shore=smoothstep(.03,.3,texture2D(uRelief,uv,4.5).g);
+ float region=fbm(p*7.+uSeed*1.37)+shore*.12;
+ float core=smoothstep(uCityLo,uCityLo+.12,region);
+ float towns=noise3(p*46.+uSeed*2.1);
+ float grain=noise3(p*170.-uSeed);
+ float sharp=core*smoothstep(.45,.82,towns)*smoothstep(.55,.88,grain)*1.25+core*smoothstep(.66,.92,towns)*.22;
+ // Far away the speckle aliases; fall back to a dim average glow.
+ float detail=1.-smoothstep(.006,.03,length(fwidth(p)));
+ float cityMask=mix(core*.04,sharp,detail)*land*night*uCity;
+ lit+=vec3(1.,.62,.30)*cityMask*mix(.5,1.25,uHdr);
+}
+// Aerial perspective: the limb is seen through a long air column, so it
+// picks up in-scattered sky light on the day side and loses some contrast.
+if(uAtmo>.5){
+ float mu=max(dot(Ng,V),0.);float airmass=1./(mu+.16);
+ float haze=1.-exp(-airmass*.07);
+ float sunlit=smoothstep(-.22,.45,sc);
+ vec3 air=mix(uTint,dusk(sc)*dot(uTint,vec3(.3,.5,.2))*1.7,smoothstep(.35,.0,sc)*.65);
+ lit=lit*(1.-haze*.28*sunlit)+air*haze*sunlit*mix(.42,.6,uHdr);
+}
 lit*=uPalette;
 if(uDiagram>.5){
  float lum=dot(lit,vec3(.2126,.7152,.0722));lit=mix(lit,vec3(.52,.79,.98)*lum,.55);
@@ -85,7 +153,7 @@ gl_FragColor=vec4(lit,1.);
 }`});return mat;
 }
 
-export function cloudMaterial(def, lightPosition){return new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{uSeed:{value:def.seed},uDensity:{value:def.cloud},uLight:{value:lightPosition},uMap:{value:texture('worlds/'+def.id+'-clouds.webp',false)}},vertexShader:vertex,fragmentShader:`
+export function cloudMaterial(def, lightPosition){return new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{uSeed:{value:def.seed},uDensity:densityUniform(def),uLight:{value:lightPosition},uMap:{value:texture('worlds/'+def.id+'-clouds.webp',false)}},vertexShader:vertex,fragmentShader:`
 varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;varying vec2 vUv;uniform float uSeed,uDensity;uniform vec3 uLight;uniform sampler2D uMap;
 ${noise}
 void main(){float c=texture2D(uMap,vec2(vUv.x+uSeed*.067,vUv.y)).r;float alpha=smoothstep(.16,.97,c)*min(uDensity*1.35,1.);float light=max(dot(normalize(vNormal),normalize(uLight-vWorld)),0.);gl_FragColor=vec4(vec3(.82,.88,.95)*(.025+light*1.08),alpha*.62);
@@ -93,9 +161,42 @@ void main(){float c=texture2D(uMap,vec2(vUv.x+uSeed*.067,vUv.y)).r;float alpha=s
 #include <colorspace_fragment>
 }`});}
 
-export function atmosphereMaterial(color,lightPosition){return new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uTint:{value:new THREE.Color(color)},uLight:{value:lightPosition}},vertexShader:vertex,fragmentShader:`
-varying vec3 vNormal;varying vec3 vWorld;uniform vec3 uTint,uLight;
-void main(){vec3 N=normalize(vNormal);vec3 V=normalize(cameraPosition-vWorld);float rim=pow(1.-abs(dot(N,V)),4.2);float sun=dot(N,normalize(uLight-vWorld));float amount=rim*(.03+smoothstep(-.35,.6,sun)*.62);gl_FragColor=vec4(uTint,amount);
+// Single-scattering approximation along the view ray through the shell:
+// exponential density, per-sample sunlight with a soft planet shadow, Rayleigh
+// phase plus a little forward (Mie) lobe. Day side gives a bright tinted limb,
+// the terminator shifts warm/violet, the night side fades to nothing.
+const atmosphereVertex=`varying vec3 vWorld;varying vec3 vCenter;varying float vRadius;
+void main(){vWorld=(modelMatrix*vec4(position,1.)).xyz;vCenter=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;vRadius=length(modelMatrix[0].xyz);gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);}`;
+export function atmosphereMaterial(color,lightPosition,shell=SHELL){return new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uTint:{value:new THREE.Color(color)},uLight:{value:lightPosition},uHdr:hdrBoost,uShell:{value:shell}},vertexShader:atmosphereVertex,fragmentShader:`
+varying vec3 vWorld;varying vec3 vCenter;varying float vRadius;uniform vec3 uTint,uLight;uniform float uHdr,uShell;
+void main(){
+ vec3 ro=cameraPosition,rd=normalize(vWorld-ro),oc=ro-vCenter;
+ float Ra=vRadius,Rp=Ra/uShell,shell=Ra-Rp;
+ float b=dot(oc,rd),c=dot(oc,oc);
+ float h=b*b-(c-Ra*Ra);if(h<=0.)discard;h=sqrt(h);
+ float t0=max(-b-h,0.),t1=-b+h;
+ float hp=b*b-(c-Rp*Rp);if(hp>0.){float tp=-b-sqrt(hp);if(tp>0.)t1=min(t1,tp);}
+ vec3 L=normalize(uLight-vCenter);
+ float dt=(t1-t0)/10.;vec3 day=vec3(0.);vec3 edge=vec3(0.);
+ for(int i=0;i<10;i++){
+  vec3 s=oc+rd*(t0+(float(i)+.5)*dt);float r=length(s);
+  float dens=exp(-clamp((r-Rp)/shell,0.,1.)*3.2);
+  float sc=dot(s/r,L);
+  float sun=smoothstep(-.24,.12,sc);
+  float warm=smoothstep(.4,.02,sc);
+  day+=dens*sun*(1.-warm*.7)*dt;
+  edge+=dens*sun*warm*mix(vec3(.42,.30,.85),vec3(1.,.50,.26),smoothstep(-.16,.08,sc))*dt;
+ }
+ // Normalise so the tangent ray at the limb integrates to ~1.
+ float norm=1./(Ra*.42);
+ float mu=dot(rd,L);
+ float phase=.75*(1.+mu*mu)+.35*pow(max(mu,0.),8.);
+ float lum=dot(uTint,vec3(.3,.5,.2));
+ vec3 col=(uTint*day+edge*lum*1.5)*norm*phase;
+ col=col*mix(.95,1.55,uHdr);
+ // Soft knee keeps the LDR path inside display range without a hard clip.
+ col=mix(col/(1.+col*.6),col,uHdr);
+ gl_FragColor=vec4(col,1.);
 #include <colorspace_fragment>
 }`});}
 
@@ -109,7 +210,7 @@ vec3 color=ring.rgb*.77+vec3(.10,.105,.105);float light=.45+.55*abs(dot(normaliz
 #include <colorspace_fragment>
 }`});}
 
-export function starMaterial(){return new THREE.ShaderMaterial({uniforms:{uTime:{value:0}},vertexShader:vertex,fragmentShader:`varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;uniform float uTime;${noise}
+export function starMaterial(){return new THREE.ShaderMaterial({uniforms:{uTime:{value:0},uHdr:hdrBoost},vertexShader:vertex,fragmentShader:`varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;uniform float uTime,uHdr;${noise}
 void main(){
  vec3 p=normalize(vLocal);float t=uTime*.009;
  // A B-type photosphere reads as blue-white light. Broad cloud-shaped
@@ -125,16 +226,19 @@ void main(){
  float mu=max(dot(normalize(vNormal),normalize(cameraPosition-vWorld)),0.);
  float limb=pow(mu,.72);
  vec3 color=mix(vec3(.07,.28,.78),vec3(.37,.78,1.50),limb);
- color*=.96+(currents-.5)*.22+textureLight*detail;
+ color*=.96+((currents-.5)*.22+textureLight*detail)*mix(1.,2.1,uHdr);
  float brightCell=smoothstep(.54,.76,cells)*detail;
  color+=vec3(.025,.04,.055)*brightCell*limb;
+ // HDR path: the photosphere exceeds 1.0 so the bloom pass turns the disc
+ // into a light source; tone mapping happens later in the output pass.
+ color*=mix(1.,1.3,uHdr);
  gl_FragColor=vec4(color,1.);
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
 }`});}
 
-export function coronaMaterial(){return new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uTime:{value:0}},vertexShader:vertex,fragmentShader:`
-varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;uniform float uTime;${noise}
+export function coronaMaterial(){return new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uTime:{value:0},uHdr:hdrBoost},vertexShader:vertex,fragmentShader:`
+varying vec3 vLocal;varying vec3 vNormal;varying vec3 vWorld;uniform float uTime,uHdr;${noise}
 void main(){
  vec3 p=normalize(vLocal),viewDirection=normalize(vWorld-cameraPosition);
  // Distance to the actual oblate photosphere in ray space keeps the inner
@@ -149,7 +253,12 @@ void main(){
  float inner=exp(-altitude*36.);
  float outer=exp(-altitude*15.);
  float fade=smoothstep(0.,.21,mu);
- vec3 tint=mix(vec3(.07,.31,.74),vec3(.38,.69,1.),inner);
- gl_FragColor=vec4(tint,(inner*.46+outer*.12)*fade*filaments);
+ vec3 tint=mix(vec3(.07,.31,.74),vec3(.38,.69,1.),inner)*mix(1.,1.5,uHdr);
+ // Small prominences: ridged noise loops hugging the limb, drifting slowly.
+ float ridge=1.-abs(noise3(p*6.+vec3(0.,uTime*.004,uTime*.002))*2.-1.);
+ float loops=pow(ridge,5.)*smoothstep(.45,.75,noise3(p*2.3-uTime*.0015));
+ float prom=loops*exp(-altitude*16.)*(1.-exp(-altitude*70.));
+ tint+=vec3(.30,.36,.62)*prom*mix(.8,1.3,uHdr);
+ gl_FragColor=vec4(tint,(inner*.46+outer*.12+prom*.24)*fade*filaments);
 #include <colorspace_fragment>
 }`});}

@@ -7,7 +7,7 @@ const path=require('node:path');
 async function logicChecks(){
  const source=path.resolve(__dirname,'../discoveries.js');
  assert.ok(fs.existsSync(source),'the discovery system must exist');
- const {createDiscoveryTracker,createDiscoveries,DISCOVERIES,DISCOVERY_STORAGE_KEY}=await import('data:text/javascript;base64,'+fs.readFileSync(source).toString('base64'));
+ const {createDiscoveryTracker,createDiscoveries,createSkyPhenomena,DISCOVERIES,DISCOVERY_STORAGE_KEY,skyStory}=await import(require('node:url').pathToFileURL(source).href);
  const values=new Map(),storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};
  const unlocked=[],tracker=createDiscoveryTracker({storage,onUnlock:d=>unlocked.push(d.id)});
  assert.equal(DISCOVERIES.length,4);
@@ -47,6 +47,21 @@ async function logicChecks(){
  assert.deepEqual(sanitized.getState().visited,['lingxi']);
  assert.equal(sanitized.getState().unlocked.length,0);
  assert.doesNotThrow(()=>createDiscoveries({storage:null}).dispose(),'the discovery API also works without a document or renderer');
+ // The 02 reward sky is the egg's own dipper: seven stars, no Alkaid ring, last star faint until 08 is earned.
+ const THREE=await import(require('node:url').pathToFileURL(path.resolve(__dirname,'../node_modules/three/build/three.module.js')).href);
+ let lit=false;const told=[];
+ const sky=createSkyPhenomena({THREE,scene:new THREE.Scene(),camera:new THREE.PerspectiveCamera(),bodies:[],onChange:(id,story)=>told.push([id,story]),seventhLit:()=>lit});
+ sky.start('constellation');
+ assert.equal(sky.active,'constellation');
+ assert.deepEqual(told.at(-1),['constellation',['斗柄所指','北斗七星横在银河上方。斗柄尽头那一颗，光还很淡。']]);
+ lit=true;sky.start('constellation');assert.deepEqual(told.at(-1)[1],['斗柄所指','斗柄尽头，是瑶光。']);
+ sky.start('signal');assert.equal(told.at(-1)[1][0],'冰下的信号');sky.dispose();
+ const scene2=new THREE.Scene();createSkyPhenomena({THREE,scene:scene2,camera:new THREE.PerspectiveCamera(),bodies:[]});
+ const dipper=scene2.getObjectByName('constellation');
+ assert.equal(dipper.children.some(o=>o.type==='LineLoop'),false,'no Alkaid ring in the reward sky');
+ const points=dipper.getObjectByName('Dipper chart points');assert.equal(points.geometry.attributes.position.count,7);
+ assert.deepEqual(Array.from(points.geometry.attributes.tail.array),[0,0,0,0,0,0,1]);
+ assert.deepEqual(Array.from(points.geometry.attributes.position.array.slice(18,21)).map(Math.round),[110,94,-750],'Alkaid at DIPPER[6]*190+90');
  const readModule=filename=>import('data:text/javascript;base64,'+fs.readFileSync(filename).toString('base64'));
  const {PLANETS:now}=await readModule(path.resolve(__dirname,'../data.js'));
  assert.deepEqual(now.map(p=>p.name),['霁晞','暝霭','聆汐','素霰','浔萋','栖棠']);
@@ -64,7 +79,6 @@ async function logicChecks(){
 }
 
 async function browserChecks(){
-
  const {chromium}=require('@playwright/test');
  const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const artifacts=path.resolve(__dirname,'../artifacts/discoveries');fs.mkdirSync(artifacts,{recursive:true});

@@ -231,8 +231,8 @@ async function runChecks() {
    const probe = sb.spawnBody('probe', [-26, 0, -22], [11, 0, 6]);
    sb.selectEntity(probe.id);
    sb.followBody(probe.id);
-   sb.spawnBody('neutron', [16, 0, 26], [8, 0, 0]);
-   sb.spawnBody('neutron', [32, 0, 26], [-8, 0, 0]);
+   sb.spawnBody('neutron', [16, 10, 44], [9, 0, 0]);
+   sb.spawnBody('neutron', [32, 10, 44], [-9, 0, 0]);
   });
   await page.waitForFunction(() => window.observatory.sandbox.stats().kilonovae >= 1, null, { timeout: 12000 });
   await page.waitForTimeout(420);
@@ -430,7 +430,79 @@ async function runChecks() {
   assert.ok(elasticAfter.bounces >= 1 && elasticAfter.bothAlive, 'elastic mode must bounce planets intact');
   mark('phase3a-spin-breakup-lock-typeIa-elastic');
 
-  // 15. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
+  // 15. NEW Phase 3B: Oblique Grazing Hit-and-Run Mass Stripping -> Persistent 3D Debris Ring + Newborn Impact Moonlet + Event Log!
+  await page.click('#sb-reset-btn');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().alivePlanets === 6, null, { timeout: 5000 });
+  const grazingInit = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setCollisionMode('realistic');
+   sb.setAllowBreakup(true);
+   sb.setSpeed(1.5);
+   // Oblique offset in Z (3.4 units vs sumR=4.8) above ecliptic (y=12) -> clean Hit-and-Run Stripping!
+   const gA = sb.spawnBody('rocky', [14, 12, -48], [5.8, 0, 0], { mass: 0.22, radius: 2.55, name: '擦撞主星' });
+   const gB = sb.spawnBody('rocky', [26, 12, -44.6], [-5.8, 0, 0], { mass: 0.14, radius: 2.25, name: '擦撞客星' });
+   return { idA: gA.id, idB: gB.id, massA: gA.mass, massB: gB.mass };
+  });
+  await page.waitForFunction(() => window.observatory.sandbox.stats().grazingStrips >= 1, null, { timeout: 10000 });
+  await page.evaluate(({ idA }) => {
+   const sb = window.observatory.sandbox;
+   sb.selectEntity(idA);
+   sb.followBody(idA);
+   sb.setLogOpen(true);
+  }, { idA: grazingInit.idA });
+  await page.waitForTimeout(650);
+  const grazingAfter = await page.evaluate(({ idA, idB }) => {
+   const st = window.observatory.sandbox.stats();
+   const eA = st.entities.find(e => e.id === idA);
+   const eB = st.entities.find(e => e.id === idB);
+   return {
+    grazingStrips: st.grazingStrips,
+    ringsFormed: st.ringsFormed,
+    moonsBorn: st.moonsBorn,
+    eventLogCount: st.eventLogCount,
+    logVisible: !document.getElementById('sb-log-panel').hidden,
+    eA,
+    eB
+   };
+  }, { idA: grazingInit.idA, idB: grazingInit.idB });
+  report.metrics.phase3bGrazing = { grazingInit, grazingAfter };
+  assert.ok(grazingAfter.grazingStrips >= 1, 'oblique impact must trigger grazing hit-and-run stripping');
+  assert.ok(grazingAfter.eA && grazingAfter.eB, 'both planets must survive a grazing hit-and-run');
+  assert.ok(grazingAfter.eA.mass < grazingInit.massA * 0.93 && grazingAfter.eB.mass < grazingInit.massB * 0.88, 'both bodies must experience real mass loss');
+  assert.equal(grazingAfter.eA.hasImpactRing, true, 'heavier survivor must gain persistent 3D debris ring');
+  assert.ok(grazingAfter.moonsBorn >= 1, 'grazing stripping must condense at least 1 newborn impact moonlet');
+  assert.ok(grazingAfter.eventLogCount >= 1 && grazingAfter.logVisible, 'physics event log must record events and open cleanly');
+  await page.screenshot({ path: path.join(OUT, '15-phase3b-grazing-ring-moon-log.png') });
+  report.screenshots.push('15-phase3b-grazing-ring-moon-log.png');
+  mark('phase3b-grazing-mass-loss-ring-moon-and-log');
+
+  // 16. NEW Phase 3B: Anti-Dizzy Spatial Reference Frame (Polar AU Grid, Star-Map Radar, Body List & Off-Screen Edge Indicators)
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setRadarOpen(true);
+   sb.selectEntity('qitang');
+   sb.followBody('qitang');
+   sb.addEntityRing('qitang');
+  });
+  await page.waitForTimeout(750);
+  const navCheck = await page.evaluate(() => ({
+   radarVisible: !document.getElementById('sb-radar-panel').hidden,
+   radarListItems: document.querySelectorAll('#sb-radar-list .sb-rl-item').length,
+   compassActive: !document.getElementById('sandbox-compass').hidden,
+   visibleEdgeArrows: [...document.querySelectorAll('#sb-edge-markers .sb-edge-btn')].filter(b => !b.hidden).length,
+   qitangRing: window.observatory.sandbox.stats().planets.find(p => p.id === 'qitang')?.hasImpactRing
+  }));
+  report.metrics.phase3bSpatialNav = navCheck;
+  assert.equal(navCheck.radarVisible, true, 'live star-map radar panel must be visible');
+  assert.ok(navCheck.radarListItems >= 8, `radar alive body list must list active bodies (got ${navCheck.radarListItems})`);
+  assert.equal(navCheck.compassActive, true, 'polar AU compass reference layer must be active');
+  assert.ok(navCheck.visibleEdgeArrows >= 1, `off-screen edge indicators must point to out-of-view stars/BHs (got ${navCheck.visibleEdgeArrows})`);
+  assert.equal(navCheck.qitangRing, true, 'addEntityRing must attach persistent debris ring');
+  await page.screenshot({ path: path.join(OUT, '16-phase3b-radar-compass-edge-ring.png') });
+  report.screenshots.push('16-phase3b-radar-compass-edge-ring.png');
+  mark('phase3b-polar-au-radar-edge-indicators-and-ring');
+
+  // 17. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
   await page.click('[data-tool="grab"]');
   const toolAfter = await page.evaluate(() => window.observatory.sandbox.tool);
   assert.equal(toolAfter, 'grab', 'grab tool button should switch mode');
@@ -443,6 +515,8 @@ async function runChecks() {
    dockHidden: document.getElementById('sandbox-dock').hidden,
    camBarHidden: document.getElementById('sb-cam-bar').hidden,
    inspHidden: document.getElementById('sb-inspector').hidden,
+   compassHidden: document.getElementById('sandbox-compass').hidden,
+   edgeHidden: document.getElementById('sb-edge-markers').hidden,
    enablePan: window.observatory.sandbox.stats().enablePan,
    dataAttr: document.body.dataset.sandbox,
    viewLabel: document.getElementById('view-label').textContent
@@ -451,6 +525,8 @@ async function runChecks() {
   assert.equal(afterExit.dockHidden, true);
   assert.equal(afterExit.camBarHidden, true);
   assert.equal(afterExit.inspHidden, true);
+  assert.equal(afterExit.compassHidden, true);
+  assert.equal(afterExit.edgeHidden, true);
   assert.equal(afterExit.enablePan, false, 'exiting sandbox must restore Observatory pan=false');
   assert.equal(afterExit.dataAttr, 'false');
   assert.equal(afterExit.viewLabel, '星系全景');

@@ -190,6 +190,92 @@ body[data-sandbox="true"] .planet-label {
  font-variant-numeric: tabular-nums;
 }
 
+/* Polar AU / Cardinal Ecliptic Compass Markers (Anti-Disorientation) */
+#sandbox-compass {
+ position: fixed;
+ inset: 0;
+ pointer-events: none;
+ z-index: 2;
+}
+#sandbox-compass[hidden] {
+ display: none;
+}
+.sb-compass-tag {
+ position: absolute;
+ transform: translate(-50%, -50%);
+ font: 10px Consolas, 'Cascadia Mono', monospace;
+ letter-spacing: 0.6px;
+ padding: 1px 5px;
+ border-radius: 3px;
+ color: rgba(162, 206, 238, 0.56);
+ background: rgba(5, 11, 22, 0.36);
+ text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+ white-space: nowrap;
+}
+.sb-compass-tag[hidden] {
+ display: none;
+}
+.sb-compass-deg {
+ color: rgba(238, 198, 138, 0.58);
+}
+
+/* Off-screen Viewport Edge Directional Indicators */
+#sb-edge-markers {
+ position: fixed;
+ inset: 0;
+ pointer-events: none;
+ z-index: 21;
+}
+#sb-edge-markers[hidden] {
+ display: none;
+}
+.sb-edge-btn {
+ position: absolute;
+ transform: translate(-50%, -50%);
+ pointer-events: auto;
+ display: inline-flex;
+ align-items: center;
+ gap: 5px;
+ padding: 4px 8px;
+ border-radius: 999px;
+ border: 1px solid rgba(166, 206, 238, 0.42);
+ background: rgba(8, 16, 30, 0.88);
+ backdrop-filter: blur(10px);
+ color: #e2f0fc;
+ font-size: 10.5px;
+ white-space: nowrap;
+ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+ transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+.sb-edge-btn[hidden] {
+ display: none;
+}
+.sb-edge-btn:hover {
+ border-color: rgba(246, 206, 136, 0.82);
+ background: rgba(20, 36, 62, 0.94);
+ color: #fff;
+}
+.sb-edge-btn[data-kind="bh"] {
+ border-color: rgba(244, 192, 122, 0.62);
+}
+.sb-edge-arrow {
+ display: inline-block;
+ font-size: 9px;
+ color: #9ad8ff;
+ line-height: 1;
+}
+.sb-edge-dot {
+ width: 6px;
+ height: 6px;
+ border-radius: 50%;
+ flex: 0 0 auto;
+}
+.sb-edge-dist {
+ font: 9.5px Consolas, 'Cascadia Mono', monospace;
+ color: #9ab6cf;
+ font-variant-numeric: tabular-nums;
+}
+
 /* Cinematic Top-Center Event Banner */
 #sandbox-banner {
  position: fixed;
@@ -349,6 +435,207 @@ body[data-sandbox="true"] .planet-label {
  color: #fff;
  border-color: rgba(196, 226, 250, 0.54);
  background: rgba(36, 58, 88, 0.72);
+}
+.sb-cam-btn[aria-pressed="true"] {
+ color: #eafffa;
+ border-color: rgba(118, 236, 214, 0.68);
+ background: linear-gradient(180deg, rgba(28, 84, 92, 0.58), rgba(14, 48, 58, 0.72));
+}
+.sb-cam-btn em {
+ font-style: normal;
+ font: 9.5px Consolas, 'Cascadia Mono', monospace;
+ margin-left: 3px;
+ padding: 0 4px;
+ border-radius: 999px;
+ background: rgba(170, 212, 248, 0.18);
+ color: #d6ecff;
+}
+.sb-cam-sep {
+ width: 1px;
+ height: 18px;
+ background: rgba(176, 206, 232, 0.22);
+ margin: 0 2px;
+}
+
+/* Collapsible Top-Right Live Star-Map Radar & Body Locator Panel */
+.sb-radar-panel,
+.sb-log-panel {
+ width: 214px;
+ padding: 9px 10px;
+ border-radius: var(--ui-r-card, 8px);
+ border: 1px solid rgba(172, 208, 238, 0.32);
+ background: linear-gradient(165deg, rgba(10, 19, 34, 0.90), rgba(5, 10, 20, 0.94));
+ backdrop-filter: blur(16px);
+ box-shadow: inset 0 1px 0 rgba(220, 238, 255, 0.12), 0 14px 34px rgba(0, 0, 0, 0.48);
+ display: grid;
+ gap: 7px;
+}
+.sb-log-panel {
+ width: 268px;
+}
+.sb-radar-panel[hidden],
+.sb-log-panel[hidden] {
+ display: none;
+}
+.sb-radar-head {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ font-size: 11px;
+ color: #d6e8f8;
+}
+.sb-radar-head strong {
+ font-weight: 500;
+ letter-spacing: 0.4px;
+}
+.sb-radar-head span {
+ font: 10px Consolas, 'Cascadia Mono', monospace;
+ color: #8fb2d0;
+}
+#sb-radar-canvas {
+ width: 188px;
+ height: 188px;
+ margin: 0 auto;
+ border-radius: 50%;
+ border: 1px solid rgba(146, 196, 236, 0.30);
+ cursor: crosshair;
+ display: block;
+}
+.sb-radar-list {
+ max-height: 152px;
+ overflow-y: auto;
+ scrollbar-width: thin;
+ scrollbar-color: rgba(164, 200, 232, 0.3) transparent;
+ display: grid;
+ gap: 3px;
+}
+.sb-rl-item {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ width: 100%;
+ padding: 4px 6px;
+ border-radius: 4px;
+ border: 1px solid transparent;
+ background: rgba(16, 28, 46, 0.45);
+ color: #cfe2f4;
+ font-size: 10.5px;
+ text-align: left;
+}
+.sb-rl-item:hover {
+ background: rgba(32, 54, 84, 0.72);
+ border-color: rgba(176, 214, 246, 0.36);
+ color: #fff;
+}
+.sb-rl-item.is-sel {
+ border-color: rgba(246, 202, 118, 0.62);
+ background: rgba(74, 56, 26, 0.42);
+}
+.sb-rl-item.is-fol {
+ border-color: rgba(114, 238, 214, 0.65);
+ background: rgba(18, 60, 68, 0.48);
+}
+.sb-rl-dot {
+ width: 7px;
+ height: 7px;
+ border-radius: 50%;
+ flex: 0 0 auto;
+}
+.sb-rl-name {
+ flex: 1;
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+.sb-rl-name em {
+ font-style: normal;
+ color: #f6ce84;
+ font-size: 10px;
+}
+.sb-rl-item small {
+ font: 9.5px Consolas, 'Cascadia Mono', monospace;
+ color: #8da9c4;
+ font-variant-numeric: tabular-nums;
+}
+
+/* Collapsible Physics Event Log */
+.sb-log-clear {
+ font-size: 10px;
+ padding: 2px 7px;
+ border-radius: 4px;
+ border: 1px solid rgba(170, 204, 232, 0.24);
+ background: rgba(20, 34, 56, 0.56);
+ color: #a8c4de;
+}
+.sb-log-clear:hover {
+ color: #fff;
+ border-color: rgba(200, 228, 250, 0.56);
+}
+.sb-log-list {
+ max-height: 290px;
+ overflow-y: auto;
+ scrollbar-width: thin;
+ scrollbar-color: rgba(164, 200, 232, 0.3) transparent;
+ display: grid;
+ gap: 5px;
+}
+.sb-log-empty {
+ padding: 12px 6px;
+ text-align: center;
+ font-size: 10.5px;
+ color: #88a4be;
+}
+.sb-log-item {
+ display: grid;
+ grid-template-columns: auto 1fr;
+ gap: 6px;
+ align-items: start;
+ width: 100%;
+ padding: 6px 7px;
+ border-radius: 5px;
+ border: 1px solid rgba(168, 202, 232, 0.16);
+ border-left: 2.5px solid #86c8f8;
+ background: rgba(14, 24, 42, 0.62);
+ text-align: left;
+ color: #e2effc;
+}
+.sb-log-item:hover {
+ background: rgba(28, 46, 74, 0.78);
+ border-color: rgba(192, 224, 250, 0.42);
+}
+.sb-log-item[data-kind="merger"],
+.sb-log-item[data-kind="shatter"] {
+ border-left-color: #ff8e56;
+}
+.sb-log-item[data-kind="tde"] {
+ border-left-color: #f6b662;
+}
+.sb-log-item[data-kind="supernova"],
+.sb-log-item[data-kind="gw"] {
+ border-left-color: #c298ff;
+}
+.sb-log-item[data-kind="egg"] {
+ border-left-color: #ffd87a;
+}
+.sb-log-time {
+ font: 9.5px Consolas, 'Cascadia Mono', monospace;
+ color: #88a8c6;
+ padding-top: 1px;
+ font-variant-numeric: tabular-nums;
+}
+.sb-log-copy strong {
+ display: block;
+ font-size: 11px;
+ font-weight: 500;
+ color: #eef7ff;
+}
+.sb-log-copy small {
+ display: block;
+ margin-top: 2px;
+ font-size: 10px;
+ color: rgba(196, 216, 236, 0.82);
+ line-height: 1.35;
 }
 .sb-follow-chip {
  padding: 5px 11px;
@@ -1176,6 +1463,8 @@ body[data-look="atlas"] #sandbox-dock .sb-scenario-bar,
 body[data-look="atlas"] #sandbox-dock .sb-laws-bar,
 body[data-look="atlas"] #sandbox-dock .sb-telemetry,
 body[data-look="atlas"] #sb-cam-bar .sb-cam-views,
+body[data-look="atlas"] #sb-radar-panel,
+body[data-look="atlas"] #sb-log-panel,
 body[data-look="atlas"] #sb-inspector,
 body[data-look="atlas"] #sb-aim-hud,
 body[data-look="atlas"] #sandbox-banner,
@@ -1213,9 +1502,29 @@ body[data-look="cinema"] #sandbox-dock .sb-bar {
  .sb-cam-tip {
   display: none;
  }
+ .sb-cam-views {
+  gap: 3px;
+  padding: 4px;
+ }
  .sb-cam-btn {
-  padding: 0 7px;
-  font-size: 10px;
+  min-height: 24px;
+  padding: 0 5.5px;
+  font-size: 9.5px;
+ }
+ .sb-cam-sep {
+  display: none;
+ }
+ .sb-radar-panel,
+ .sb-log-panel {
+  width: min(230px, calc(100vw - 24px));
+ }
+ #sb-radar-canvas {
+  width: 152px;
+  height: 152px;
+ }
+ .sb-edge-btn {
+  padding: 3px 6px;
+  font-size: 9.5px;
  }
  #sb-inspector {
   left: 10px;

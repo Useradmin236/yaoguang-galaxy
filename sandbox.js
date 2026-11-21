@@ -196,11 +196,16 @@ export function createCosmicSandbox({
   drag: 0,
   collisionMode: 'realistic', // 'realistic' | 'accrete' | 'elastic'
   allowBreakup: true,
+  radarOpen: typeof window !== 'undefined' ? window.innerWidth >= 1080 : true,
+  logOpen: false,
   overlays: false,
   autoBulletTime: true
  };
 
  let savedSnapshot = null;
+ const pairCooldowns = new Map();
+ const eventLog = [];
+ const MAX_EVENT_LOG = 40;
 
  const unlockedEggs = new Set();
  let voidPrompted = false;
@@ -311,17 +316,31 @@ export function createCosmicSandbox({
    uniform float uStrength,uHdr;
    uniform vec3 uColor,uAccent;
    void main(){
-    float radialFade=1.-smoothstep(255.,375.,length(vXZ));
+    float dist=length(vXZ);
+    float radialFade=1.-smoothstep(255.,375.,dist);
     if(radialFade<=.002)discard;
     vec2 coord=vXZ/18.;
     vec2 fw=max(fwidth(coord),vec2(.001));
     vec2 g=abs(fract(coord-.5)-.5)/(fw*.9);
-    float line=1.-min(min(g.x,g.y),1.);
+    float cartLine=1.-min(min(g.x,g.y),1.);
+    // Polar AU concentric reference rings (1 AU = 31.4 units) + Cardinal 0/90/180/270 axes!
+    float au=dist/31.4;
+    float auFw=max(fwidth(au),.002);
+    float ringDist=abs(fract(au-.5)-.5)/(auFw*1.05);
+    float polarRing=(1.-min(ringDist,1.))*step(.65,au);
+    float isMajor=smoothstep(.45,.55,abs(fract(au*.5-.25)-.5)*2.);
+    float axFwX=max(fwidth(vXZ.x),.04);
+    float axFwZ=max(fwidth(vXZ.y),.04);
+    float axisLine=max(1.-min(abs(vXZ.x)/(axFwX*1.15),1.),1.-min(abs(vXZ.y)/(axFwZ*1.15),1.))*step(16.,dist);
     float clearCore=smoothstep(3.8,9.8,vMinDist);
-    float vis=(.036+vMaxWell*.26+vGwGlow*.48)*radialFade*uStrength*clearCore;
-    vec3 col=mix(uColor,uAccent,clamp(vMaxWell*.78,0.,1.));
-    col=mix(col,vec3(.88,.76,1.),clamp(vGwGlow*.85,0.,1.))*mix(.88,1.18,uHdr);
-    gl_FragColor=vec4(col,clamp(line*vis,0.,1.));
+    float baseVis=(.034+vMaxWell*.25+vGwGlow*.48)*radialFade*uStrength*clearCore;
+    float polarVis=(polarRing*(.12+.09*isMajor)+axisLine*.11)*radialFade*clearCore*(.65+uStrength*.45);
+    vec3 baseCol=mix(uColor,uAccent,clamp(vMaxWell*.78,0.,1.));
+    baseCol=mix(baseCol,vec3(.88,.76,1.),clamp(vGwGlow*.85,0.,1.));
+    vec3 polarCol=mix(vec3(.62,.86,1.),uAccent,isMajor*.55);
+    float totalAlpha=clamp(cartLine*baseVis+polarVis,0.,1.);
+    vec3 col=(baseCol*(cartLine*baseVis)+polarCol*polarVis)/max(totalAlpha,.001)*mix(.88,1.18,uHdr);
+    gl_FragColor=vec4(col,totalAlpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
    }`
@@ -870,6 +889,10 @@ export function createCosmicSandbox({
   bigBangs: 0,
   spinBreakups: 0,
   elasticBounces: 0,
+  grazingStrips: 0,
+  ringsFormed: 0,
+  moonsBorn: 0,
+  chthonianStrips: 0,
   spawned: 0,
   lastEvent: '',
   lastEnergy1e32J: 0
@@ -975,6 +998,18 @@ export function createCosmicSandbox({
   return { attr, speed, vRel, vCirc, vEscAttr, ecc, hillR, rocheMargin, label };
  }
 
+ function pushEventLog(title, detail, badge = 'event', entityId = null) {
+  eventLog.unshift({
+   t: +simTime.toFixed(1),
+   title,
+   detail,
+   badge,
+   entityId
+  });
+  if (eventLog.length > MAX_EVENT_LOG) eventLog.length = MAX_EVENT_LOG;
+  renderEventLogUI();
+ }
+
  function unlockEgg(id, customDetail = null, action = null) {
   const def = SANDBOX_EGGS.find(x => x.id === id);
   if (!def) return false;
@@ -982,6 +1017,7 @@ export function createCosmicSandbox({
   unlockedEggs.add(id);
   if (first || action) {
    showBanner(`★ 彩蛋 · ${def.title}`, customDetail || def.desc, 'egg', action);
+   pushEventLog(`★ 彩蛋 · ${def.title}`, customDetail || def.desc, 'egg', null);
    updateDockUI();
   }
   return first;
@@ -1019,10 +1055,11 @@ export function createCosmicSandbox({
   bulletTimer = Math.max(bulletTimer, duration);
  }
 
- function announceEvent(title, detail, badge = 'event', energy1e32J = 0) {
+ function announceEvent(title, detail, badge = 'event', energy1e32J = 0, entityId = null) {
   stats.lastEvent = `${title} · ${detail}`;
   if (energy1e32J > 0) stats.lastEnergy1e32J = energy1e32J;
   showBanner(title, detail, badge);
+  pushEventLog(title, detail, badge, entityId);
   onEvent({ title, detail, badge, energy1e32J });
   updateDockUI();
  }
@@ -1057,12 +1094,102 @@ export function createCosmicSandbox({
   return el;
  }
 
+ function removeImpactRing(e) {
+  if (!e || !e.impactRing) return;
+  const host = e.isOriginal ? e.body?.root : e.dynVisual?.root;
+  if (host) host.remove(e.impactRing.mesh);
+  e.impactRing.dispose();
+  e.impactRing = null;
+ }
+
+ function attachOrBoostDebrisRing(entity, { color = null, heat = 0.95, density = 0.85, tiltX = null, tiltZ = null, silent = false } = {}) {
+  if (!entity || !entity.alive || entity.kind === 'bh' || entity.kind === 'probe') return null;
+  const host = entity.isOriginal ? entity.body?.root : entity.dynVisual?.root;
+  if (!host) return null;
+  const colArr = color || [
+   THREE.MathUtils.clamp(entity.color.r * 0.8 + 0.25, 0.35, 1),
+   THREE.MathUtils.clamp(entity.color.g * 0.78 + 0.22, 0.3, 1),
+   THREE.MathUtils.clamp(entity.color.b * 0.75 + 0.18, 0.25, 1)
+  ];
+  if (entity.impactRing) {
+   entity.impactRing.heat = Math.max(entity.impactRing.heat, heat);
+   entity.impactRing.density = Math.min(1.0, entity.impactRing.density + 0.16);
+   entity.impactRing.uniforms.uColor.value.lerp(new THREE.Vector3(...colArr), 0.45);
+   entity.impactRing.color = entity.impactRing.uniforms.uColor.value.toArray();
+   return entity.impactRing;
+  }
+  const ring = bodyFactory.createImpactRing(entity.radius, {
+   color: colArr,
+   heat,
+   density,
+   tiltX: tiltX ?? ((rand() - 0.5) * 0.26),
+   tiltZ: tiltZ ?? ((rand() - 0.5) * 0.36 + 0.14),
+   seed: 1.5 + rand() * 8
+  });
+  host.add(ring.mesh);
+  entity.impactRing = ring;
+  stats.ringsFormed++;
+  if (!silent) updateDockUI();
+  return ring;
+ }
+
+ function condenseImpactMoonlet(host, strippedMass, normalDir, silent = true) {
+  if (!sim || !host || !host.alive) return null;
+  const aliveDynamic = sim.entities.filter(e => !e.isOriginal && e.alive).length;
+  if (aliveDynamic >= MAX_ALIVE_BODIES - 3) return null;
+  const tang = new THREE.Vector3(-normalDir.z, 0, normalDir.x);
+  if (tang.lengthSq() < 1e-4) tang.set(1, 0, 0);
+  else tang.normalize();
+  const orbitR = Math.max(host.radius * 3.25, host.radius + 3.6);
+  const mPos = host.pos.clone().addScaledVector(tang, orbitR).add(new THREE.Vector3(0, (rand() - 0.5) * 1.1, 0));
+  const mVel = circularVelocityAround(mPos, host, 'moon', false);
+  const mMass = THREE.MathUtils.clamp(strippedMass * 0.26, 0.004, 0.025);
+  const mRad = THREE.MathUtils.clamp(Math.cbrt(mMass / 0.008) * 0.85, 0.72, 1.18);
+  const moon = spawnSingleEntity('moon-ice', mPos, mVel, {
+   mass: mMass,
+   radius: mRad,
+   temperature: Math.min(2400, Math.max(1150, host.temperature || 1200)),
+   name: `${host.name}·新生月`,
+   silent
+  });
+  if (moon) {
+   moon.lavaHeat = 0.75;
+   stats.moonsBorn++;
+  }
+  return moon;
+ }
+
+ function stripToChthonianCore(e, reason = '剧烈剥离') {
+  if (!e || !e.alive || !e.isGasOrIce || e.kind !== 'planet' || e.isChthonian) return false;
+  e.isChthonian = true;
+  e.isGasOrIce = false;
+  e.subType = 'rocky';
+  e.mass = Math.max(0.028, e.mass * 0.42);
+  e.targetRadius = Math.max(1.25, e.radius * 0.62);
+  e.lavaHeat = 1.0;
+  e.temperature = Math.max(e.temperature || 1600, 2250);
+  if (e.isOriginal && e.body?.ring) e.body.ring.visible = false;
+  if (e.isOriginal && e.body?.clouds) e.body.clouds.visible = false;
+  if (!e.isOriginal && e.dynVisual?.ring) e.dynVisual.ring.visible = false;
+  stats.chthonianStrips++;
+  // Blast stripped gas cloud outward
+  for (let i = 0; i < 220; i++) {
+   const theta = rand() * Math.PI * 2, u = rand() * 2 - 1, s = Math.sqrt(Math.max(0, 1 - u * u));
+   const dx = Math.cos(theta) * s, dy = u, dz = Math.sin(theta) * s;
+   const spd = 4 + rand() * 11;
+   spawnDebris(e.pos.x + dx * e.radius, e.pos.y + dy * e.radius, e.pos.z + dz * e.radius, e.vel.x + dx * spd, e.vel.y + dy * spd * 0.7, e.vel.z + dz * spd, 0.52, 0.84, 1.0, 1.3 + rand() * 2.1, 0.65, 20 + rand() * 14, 1);
+  }
+  announceEvent('气态剥离 · 冥府岩核', `${e.name} 因${reason}剥去厚重气壳，裸露出炽热致密岩核（Chthonian）！`, 'tde', 0, e.id);
+  return true;
+ }
+
  function clearDynamicEntities() {
   if (!sim) {
    dynamicLabelsEl.replaceChildren();
    return;
   }
   for (const e of sim.entities) {
+   removeImpactRing(e);
    if (e.isOriginal) continue;
    if (e.dynVisual) {
     dynamicGroup.remove(e.dynVisual.root);
@@ -1084,6 +1211,7 @@ export function createCosmicSandbox({
  }
 
  function hideEntityVisual(e) {
+  removeImpactRing(e);
   e.alive = false;
   if (selectedEntity === e) selectEntity(null);
   if (followEntity === e) followBody(null);
@@ -1304,9 +1432,16 @@ export function createCosmicSandbox({
   stats.slingshots = 0;
   stats.spinBreakups = 0;
   stats.elasticBounces = 0;
+  stats.grazingStrips = 0;
+  stats.ringsFormed = 0;
+  stats.moonsBorn = 0;
+  stats.chthonianStrips = 0;
   stats.spawned = 0;
   stats.lastEvent = '';
   stats.lastEnergy1e32J = 0;
+  pairCooldowns.clear();
+  eventLog.length = 0;
+  renderEventLogUI();
 
   spawnCounter = 0;
   for (const k of Object.keys(typeCounters)) delete typeCounters[k];
@@ -1431,7 +1566,10 @@ export function createCosmicSandbox({
    b.root.scale.set(1, 1, 1);
    b.root.quaternion.identity();
    b.surface.scale.setScalar(pv.baseRadius);
-   if (b.clouds) b.clouds.scale.setScalar(pv.baseRadius * 1.012);
+   if (b.clouds) {
+    b.clouds.visible = true;
+    b.clouds.scale.setScalar(pv.baseRadius * 1.012);
+   }
    if (b.atmosphere) {
     b.atmosphere.rotation.z = 0;
     b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
@@ -2103,6 +2241,117 @@ export function createCosmicSandbox({
   announceEvent('超临界自转解体', `${nm} 离心力突破自身引力束缚，沿赤道甩碎成碎片环！`, 'shatter');
  }
 
+ function pairKeyFor(a, b) {
+  return a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+ }
+
+ function handleGrazingStrip(a, b, normal, dist, relSpeed, energy) {
+  stats.grazingStrips++;
+  const heavier = a.mass >= b.mass ? a : b;
+  const lighter = heavier === a ? b : a;
+  const minR = a.radius + b.radius;
+
+  // Real physical mass loss (heavier loses 10-16%, lighter loses 18-30%) & visible radius shrinkage!
+  const lossHeavy = THREE.MathUtils.clamp(0.10 + relSpeed * 0.004, 0.10, 0.17);
+  const lossLight = THREE.MathUtils.clamp(0.18 + relSpeed * 0.007, 0.18, 0.32);
+  const strippedHeavy = heavier.mass * lossHeavy;
+  const strippedLight = lighter.mass * lossLight;
+  const totalStripped = strippedHeavy + strippedLight;
+
+  heavier.mass = Math.max(0.01, heavier.mass - strippedHeavy);
+  lighter.mass = Math.max(0.005, lighter.mass - strippedLight);
+  heavier.targetRadius = Math.max(0.85, heavier.radius * Math.cbrt(1 - lossHeavy));
+  lighter.targetRadius = Math.max(0.72, lighter.radius * Math.cbrt(1 - lossLight));
+
+  // Separate bodies & deflect along oblique post-grazing trajectory + set cooldown
+  const overlap = Math.max(0, minR * 1.12 - dist);
+  const invA = a.pinned ? 0 : 1 / Math.max(a.mass, 0.008);
+  const invB = b.pinned ? 0 : 1 / Math.max(b.mass, 0.008);
+  const invSum = invA + invB;
+  if (invSum > 0 && overlap > 0) {
+   if (!a.pinned) a.pos.addScaledVector(normal, -overlap * (invA / invSum));
+   if (!b.pinned) b.pos.addScaledVector(normal, overlap * (invB / invSum));
+  }
+  const relV = b.vel.clone().sub(a.vel);
+  const vn = relV.dot(normal);
+  if (vn < 0 && invSum > 0) {
+   const j = -1.35 * vn / invSum;
+   if (!a.pinned) a.vel.addScaledVector(normal, -j * invA);
+   if (!b.pinned) b.vel.addScaledVector(normal, j * invB);
+  }
+  // Slight inelastic energy dissipation along tangent
+  if (!a.pinned) a.vel.lerp(b.vel, 0.08);
+  if (!b.pinned) b.vel.lerp(a.vel, 0.08);
+  pairCooldowns.set(pairKeyFor(a, b), simTime + 1.15);
+
+  // Molten impact scars & shear spin-up on both survivors
+  const dirToLight = lighter.pos.clone().sub(heavier.pos).normalize();
+  heavier.lavaHeat = Math.max(heavier.lavaHeat || 0, 0.88);
+  lighter.lavaHeat = Math.max(lighter.lavaHeat || 0, 0.95);
+  heavier.impactDir.copy(dirToLight);
+  lighter.impactDir.copy(dirToLight).negate();
+  heavier.temperature = Math.min(4200, (heavier.temperature || 300) + 1150);
+  lighter.temperature = Math.min(4200, (lighter.temperature || 300) + 1500);
+  heavier.spinRate = THREE.MathUtils.clamp((heavier.spinRate || 0.2) + 0.52, -6, 6);
+  lighter.spinRate = THREE.MathUtils.clamp((lighter.spinRate || 0.2) - 0.68, -6, 6);
+
+  // Persistent glowing molten 3D debris ring on heavier survivor!
+  const mixCol = [
+   (heavier.color.r * 0.55 + lighter.color.r * 0.45) * 0.9 + 0.15,
+   (heavier.color.g * 0.55 + lighter.color.g * 0.45) * 0.9 + 0.12,
+   (heavier.color.b * 0.55 + lighter.color.b * 0.45) * 0.9 + 0.10
+  ];
+  attachOrBoostDebrisRing(heavier, { color: mixCol, heat: 1.0, density: 0.86, silent: true });
+
+  // Condense 1 newborn impact-born moonlet orbiting outside the fresh debris ring!
+  let moonNote = '';
+  if (heavier.mass >= 0.055 && totalStripped >= 0.008) {
+   const moon = condenseImpactMoonlet(heavier, totalStripped, dirToLight, true);
+   if (moon) moonNote = `，外缘凝结新生卫星 ${moon.name}`;
+  }
+
+  // Eject 280 blazing stripped mantle debris particles
+  const hitPos = a.pos.clone().addScaledVector(normal, a.radius * 0.95);
+  const cmVel = a.vel.clone().multiplyScalar(a.mass).addScaledVector(b.vel, b.mass).divideScalar(a.mass + b.mass);
+  for (let i = 0; i < 280; i++) {
+   const ang = rand() * Math.PI * 2;
+   const u = (rand() - 0.5) * 1.4;
+   const dx = Math.cos(ang), dy = u * 0.45, dz = Math.sin(ang);
+   const dl = Math.hypot(dx, dy, dz) || 1;
+   const spd = (0.35 + rand() * 0.85) * Math.min(relSpeed * 0.72, 16);
+   const src = i % 2 === 0 ? lighter : heavier;
+   spawnDebris(
+    hitPos.x + (dx / dl) * (0.8 + rand() * 1.8), hitPos.y + (dy / dl) * 1.1, hitPos.z + (dz / dl) * (0.8 + rand() * 1.8),
+    cmVel.x + (dx / dl) * spd, cmVel.y + (dy / dl) * spd, cmVel.z + (dz / dl) * spd,
+    src.color.r, src.color.g, src.color.b,
+    1.1 + rand() * 2.2, 0.72 + rand() * 0.28, 22 + rand() * 18, src.isGasOrIce ? 1 : 0
+   );
+  }
+  spawnShockwave(hitPos, {
+   maxRadius: minR * 3.5,
+   flashSize: minR * 3.6,
+   dur: 2.1,
+   colorA: [1.0, 0.92, 0.72],
+   colorB: [1.0, 0.52, 0.16]
+  });
+
+  bloomSurge = Math.min(0.42, bloomSurge + 0.22);
+  triggerBulletTime(1.35, 0.22);
+
+  // If the lighter gas giant lost enough envelope, expose its bare Chthonian rocky core!
+  if (lighter.isGasOrIce && lighter.kind === 'planet' && !lighter.isChthonian && lighter.targetRadius < 2.85) {
+   stripToChthonianCore(lighter, '高速斜向擦撞');
+  }
+
+  announceEvent(
+   '斜向擦撞 · 质量剥离成环',
+   `${heavier.name} 剥离 ${lighter.name} ${Math.round(lossLight * 100)}% 质量并形成炽热碎屑环${moonNote}`,
+   'merger',
+   energy,
+   heavier.id
+  );
+ }
+
  function handlePlanetImpact(a, b) {
   if (!a.alive || !b.alive || !sim) return;
   stats.impacts++;
@@ -2126,8 +2375,20 @@ export function createCosmicSandbox({
   const energy = +(0.5 * reducedMass * relSpeed * relSpeed * 0.18).toFixed(1);
   const massRatio = Math.max(a.mass, b.mass) / Math.max(Math.min(a.mass, b.mass), 0.01);
 
+  // Impact obliquity: 0 = pure head-on, 1 = pure grazing tangent
+  const approachCos = relSpeed > 0.05 ? Math.min(1, Math.abs(vB.dot(normal)) / relSpeed) : 1;
+  const obliquity = Math.sqrt(Math.max(0, 1 - approachCos * approachCos));
+
   const canShatter = config.collisionMode === 'realistic' && config.allowBreakup && !a.noBreakup && !b.noBreakup;
-  const hypervelocity = canShatter && relSpeed >= Math.max(13.5, vEsc * 2.8) && massRatio < 2.8;
+  const hypervelocity = canShatter && relSpeed >= Math.max(13.5, vEsc * 2.8) && massRatio < 2.8 && obliquity < 0.50;
+  const isGrazing = canShatter && !hypervelocity &&
+   a.kind === 'planet' && b.kind === 'planet' &&
+   obliquity >= 0.46 && relSpeed >= Math.max(5.2, vEsc * 0.92);
+
+  if (isGrazing) {
+   handleGrazingStrip(a, b, normal, dist, relSpeed, energy);
+   return;
+  }
 
   vC.crossVectors(normal, vUp);
   if (vC.lengthSq() < 1e-4) vC.set(1, 0, 0);
@@ -2183,17 +2444,38 @@ export function createCosmicSandbox({
    hideEntityVisual(absorbed);
    absorbed.status = 'merged';
 
+   // 6% impact ejecta mass sheds into persistent glowing debris ring!
+   const ejectaFrac = absorbed.kind === 'planet' ? 0.06 : 0.03;
+   const finalMass = totalMass * (1 - ejectaFrac);
    if (!survivor.pinned) {
     survivor.pos.copy(survivor.pos.clone().multiplyScalar(survivor.mass).addScaledVector(absorbed.pos, absorbed.mass).divideScalar(totalMass));
     survivor.vel.copy(cmVel);
    }
-   survivor.mass = totalMass;
-   survivor.targetRadius = Math.min(7.2, Math.cbrt(Math.pow(survivor.radius, 3) + Math.pow(absorbed.radius, 3)));
+   survivor.mass = finalMass;
+   survivor.targetRadius = Math.min(7.2, Math.cbrt(Math.pow(survivor.radius, 3) + Math.pow(absorbed.radius, 3) * (1 - ejectaFrac)));
    survivor.mergedCount++;
    survivor.lavaHeat = 1.0;
    survivor.temperature = Math.min(4200, Math.max(survivor.temperature || 400, 1950 + relSpeed * 55));
    survivor.spinRate = THREE.MathUtils.clamp((survivor.spinRate || 0.2) + spinKick, -6, 6);
    survivor.impactDir.copy(impactFromAbsorbed);
+
+   // Birth / enrich persistent 3D molten debris ring around the merged giant!
+   let ringNote = '';
+   if (absorbed.kind === 'planet' || absorbed.mass >= 0.012) {
+    const ringCol = [
+     (survivor.color.r * 0.5 + absorbed.color.r * 0.5) * 0.88 + 0.15,
+     (survivor.color.g * 0.5 + absorbed.color.g * 0.5) * 0.88 + 0.12,
+     (survivor.color.b * 0.5 + absorbed.color.b * 0.5) * 0.88 + 0.10
+    ];
+    attachOrBoostDebrisRing(survivor, { color: ringCol, heat: 1.0, density: 0.88, silent: true });
+    ringNote = ' · 抛射物质形成炽热星环';
+   }
+
+   // Energetic oblique planetary merger can also condense a newborn impact moonlet!
+   if (obliquity >= 0.24 && absorbed.kind === 'planet' && absorbed.mass >= 0.025) {
+    const moon = condenseImpactMoonlet(survivor, totalMass * ejectaFrac, impactFromAbsorbed, true);
+    if (moon) ringNote += `与新生月 ${moon.name}`;
+   }
 
    const count = 380;
    const splashSpeed = Math.max(4.5, Math.min(relSpeed * 0.58, 16));
@@ -2232,7 +2514,7 @@ export function createCosmicSandbox({
    bloomSurge = Math.min(0.44, bloomSurge + 0.26);
    rippleSurge = Math.min(0.80, rippleSurge + 0.34);
    if (absorbed.kind !== 'comet' && absorbed.kind !== 'moon') triggerBulletTime(1.55, 0.18);
-   announceEvent('行星大撞击 · 熔融合并', `${survivor.name} 吞并 ${absorbed.name}（${energy}×10³² J）`, 'merger', energy);
+   announceEvent('行星大撞击 · 熔融合并', `${survivor.name} 吞并 ${absorbed.name}${ringNote}（${energy}×10³² J）`, 'merger', energy, survivor.id);
    checkMassCollapse(survivor);
   }
  }
@@ -2501,7 +2783,13 @@ export function createCosmicSandbox({
        const ablate = Math.exp(-0.014 * Math.min(dtSim, 0.5));
        e.mass = Math.max(0.005, e.mass * ablate);
        e.targetRadius = Math.max(0.75, e.targetRadius * Math.cbrt(ablate));
+       if (e.temperature > 2800 && e.isGasOrIce && e.kind === 'planet' && !e.isChthonian && e.mass < 0.085) {
+        stripToChthonianCore(e, '极端高温蒸发');
+       }
       }
+     }
+     if (e.impactRing && e.impactRing.heat > 0.02) {
+      e.impactRing.heat *= Math.exp(-0.028 * Math.min(dtSim, 0.8));
      }
     }
 
@@ -2774,6 +3062,8 @@ export function createCosmicSandbox({
      if ((aLight && a.kind !== 'probe') && (bLight && b.kind !== 'probe')) {
       const minR = (a.radius + b.radius) * 0.96;
       if (d2 < minR * minR) {
+       const cd = pairCooldowns.get(pairKeyFor(a, b));
+       if (cd && simTime < cd) continue;
        if (seg.t < 0.99) {
         a.pos.lerpVectors(a.prevPos, a.pos, seg.t);
         b.pos.lerpVectors(b.prevPos, b.pos, seg.t);
@@ -3066,6 +3356,7 @@ export function createCosmicSandbox({
      } else {
       pv.crust.mesh.visible = false;
      }
+     if (e.impactRing) e.impactRing.update(simAge, e);
      pushTrail(pv.history, pv.trail, e.pos, 0.66);
      const refPos = primaryStar ? primaryStar.pos : sim.barycenter;
      const eraTag = aliveStarsForEra.length >= 3 ? computeEraTag(e.pos, aliveStarsForEra) : null;
@@ -3115,6 +3406,7 @@ export function createCosmicSandbox({
        e.dynVisual.crust.mesh.visible = false;
       }
      }
+     if (e.impactRing) e.impactRing.update(simAge, e);
      pushTrail(e.history, e.trail, e.pos, e.kind === 'probe' ? 0.92 : 0.62);
     } else if (e.trail) {
      e.trailFade = Math.max(0, e.trailFade - dtReal * 0.14);
@@ -3244,12 +3536,137 @@ export function createCosmicSandbox({
   trail.material.opacity = opacity;
  }
 
+ // Polar AU & Cardinal Spatial Reference Markers + Off-screen Edge Pointers
+ const compassEl = document.createElement('div');
+ compassEl.id = 'sandbox-compass';
+ compassEl.hidden = true;
+ const COMPASS_ANCHORS = [
+  { text: '2 AU', pos: new THREE.Vector3(62.8, -7.8, 0), cls: 'au' },
+  { text: '4 AU', pos: new THREE.Vector3(125.6, -7.8, 0), cls: 'au' },
+  { text: '6 AU', pos: new THREE.Vector3(188.4, -7.8, 0), cls: 'au' },
+  { text: '0°', pos: new THREE.Vector3(0, -7.8, -165), cls: 'deg' },
+  { text: '90°', pos: new THREE.Vector3(165, -7.8, 0), cls: 'deg' },
+  { text: '180°', pos: new THREE.Vector3(0, -7.8, 165), cls: 'deg' },
+  { text: '270°', pos: new THREE.Vector3(-165, -7.8, 0), cls: 'deg' }
+ ];
+ const compassNodes = COMPASS_ANCHORS.map(a => {
+  const s = document.createElement('span');
+  s.className = `sb-compass-tag sb-compass-${a.cls}`;
+  s.textContent = a.text;
+  s.hidden = true;
+  compassEl.append(s);
+  return { ...a, el: s };
+ });
+ document.body.append(compassEl);
+
+ const edgeMarkersEl = document.createElement('div');
+ edgeMarkersEl.id = 'sb-edge-markers';
+ edgeMarkersEl.hidden = true;
+ document.body.append(edgeMarkersEl);
+ const edgePool = [];
+ for (let i = 0; i < 8; i++) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'sb-edge-btn';
+  btn.hidden = true;
+  btn.innerHTML = '<span class="sb-edge-arrow">▲</span><span class="sb-edge-dot"></span><span class="sb-edge-name"></span><small class="sb-edge-dist"></small>';
+  edgeMarkersEl.append(btn);
+  edgePool.push(btn);
+ }
+
+ function updateSpatialReferenceOverlays(show) {
+  if (!active || !sim || !show) {
+   compassEl.hidden = true;
+   edgeMarkersEl.hidden = true;
+   return;
+  }
+  compassEl.hidden = false;
+  for (const cn of compassNodes) {
+   vA.copy(cn.pos).project(camera);
+   const x = (vA.x * 0.5 + 0.5) * innerWidth;
+   const y = (-vA.y * 0.5 + 0.5) * innerHeight;
+   const out = vA.z > 1 || vA.z < -1 || x < 42 || x > innerWidth - 42 || y < 86 || y > innerHeight - 130;
+   cn.el.hidden = out;
+   if (!out) {
+    cn.el.style.left = `${x.toFixed(0)}px`;
+    cn.el.style.top = `${y.toFixed(0)}px`;
+   }
+  }
+
+  // Off-screen viewport-edge directional arrows for high-value bodies (BH, stars, pulsars, selected/followed)
+  edgeMarkersEl.hidden = false;
+  const tracked = [];
+  const seen = new Set();
+  const tryTrack = e => {
+   if (!e || !e.alive || seen.has(e.id)) return;
+   seen.add(e.id);
+   tracked.push(e);
+  };
+  if (followEntity) tryTrack(followEntity);
+  if (selectedEntity) tryTrack(selectedEntity);
+  for (const e of sim.entities) {
+   if (!e.alive) continue;
+   if (e.kind === 'bh' || e.kind === 'star' || e.kind === 'neutron' || e.kind === 'white-dwarf') tryTrack(e);
+  }
+
+  let used = 0;
+  const cx = innerWidth * 0.5;
+  const cy = innerHeight * 0.5;
+  const padX = 54;
+  const padTop = 76;
+  const padBot = 128;
+  const halfW = Math.max(80, cx - padX);
+  const halfH = Math.max(80, cy - Math.max(padTop, padBot));
+  const refCenter = sim.star?.alive ? sim.star.pos : sim.barycenter;
+
+  for (const e of tracked) {
+   if (used >= edgePool.length) break;
+   vA.copy(e.pos).project(camera);
+   const behind = vA.z > 1;
+   let nx = behind ? -vA.x : vA.x;
+   let ny = behind ? -vA.y : vA.y;
+   const sx = (nx * 0.5 + 0.5) * innerWidth;
+   const sy = (-ny * 0.5 + 0.5) * innerHeight;
+   const inside = !behind && sx >= 28 && sx <= innerWidth - 28 && sy >= 56 && sy <= innerHeight - 110;
+   if (inside) continue;
+
+   let dx = sx - cx;
+   let dy = sy - cy;
+   const len = Math.hypot(dx, dy) || 1;
+   dx /= len; dy /= len;
+   const scale = Math.min(halfW / Math.max(Math.abs(dx), 0.001), halfH / Math.max(Math.abs(dy), 0.001));
+   const px = THREE.MathUtils.clamp(cx + dx * scale, padX, innerWidth - padX);
+   const py = THREE.MathUtils.clamp(cy + dy * scale, padTop, innerHeight - padBot);
+   const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+
+   const btn = edgePool[used++];
+   btn.hidden = false;
+   btn.style.left = `${px.toFixed(0)}px`;
+   btn.style.top = `${py.toFixed(0)}px`;
+   btn.dataset.kind = e.kind;
+   btn.querySelector('.sb-edge-arrow').style.transform = `rotate(${angleDeg.toFixed(1)}deg)`;
+   btn.querySelector('.sb-edge-dot').style.background = `#${e.color.getHexString()}`;
+   btn.querySelector('.sb-edge-name').textContent = e.name;
+   const au = (e.pos.distanceTo(refCenter) / 31.4).toFixed(1);
+   btn.querySelector('.sb-edge-dist').textContent = `${au} AU`;
+   btn.title = `点击聚焦 ${e.name}`;
+   btn.onclick = () => {
+    selectEntity(e);
+    focusEntity(e.id);
+   };
+  }
+  for (let i = used; i < edgePool.length; i++) edgePool[i].hidden = true;
+ }
+
  function updateLabels(show = true) {
   if (!active || !sim) {
    dynamicLabelsEl.hidden = true;
+   compassEl.hidden = true;
+   edgeMarkersEl.hidden = true;
    return;
   }
   dynamicLabelsEl.hidden = !show;
+  updateSpatialReferenceOverlays(show);
   if (!show) return;
 
   for (const e of sim.entities) {
@@ -3326,6 +3743,30 @@ export function createCosmicSandbox({
    };
   }
   updateCamBarUI();
+ }
+
+ function focusEntity(idOrEntity) {
+  if (!active || !sim) return false;
+  const ent = typeof idOrEntity === 'string'
+   ? sim.entities.find(e => e.id === idOrEntity && e.alive)
+   : (idOrEntity?.alive ? idOrEntity : null);
+  if (!ent) return false;
+  followEntity = null;
+  const standOff = Math.max(ent.radius * 8.5, ent.kind === 'bh' ? 36 : ent.kind === 'star' ? 42 : 26);
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1) dir.set(0, 0.45, 1);
+  dir.normalize();
+  camAnim = {
+   start: performance.now(),
+   dur: 560,
+   fromPos: camera.position.clone(),
+   toPos: ent.pos.clone().addScaledVector(dir, standOff),
+   fromTarget: controls.target.clone(),
+   toTarget: ent.pos.clone()
+  };
+  updateCamBarUI();
+  updateInspectorUI();
+  return true;
  }
 
  function followBody(idOrEntity) {
@@ -3964,27 +4405,255 @@ export function createCosmicSandbox({
   }, timeoutMs);
  }
 
- // Top-Right Spatial Camera Bar
+ // Top-Right Spatial Camera Bar + Collapsible Star-Map Radar + Physics Event Log
  const camBar = document.createElement('aside');
  camBar.id = 'sb-cam-bar';
- camBar.setAttribute('aria-label', '空间视角控制');
+ camBar.setAttribute('aria-label', '空间视角与星图雷达');
  camBar.hidden = true;
  camBar.innerHTML = `
-  <div class="sb-cam-views" role="group" aria-label="快捷视角">
+  <div class="sb-cam-views" role="group" aria-label="快捷视角与导航工具">
    <button type="button" class="sb-cam-btn" data-cam="overview" title="恢复开阔全景">全览</button>
    <button type="button" class="sb-cam-btn" data-cam="barycenter" title="对准系统共同质心">质心</button>
    <button type="button" class="sb-cam-btn" data-cam="top" title="正俯视星盘（极佳弹弓瞄准视角）">俯视</button>
    <button type="button" class="sb-cam-btn" data-cam="side" title="低倾角侧视影院视角">侧视</button>
+   <span class="sb-cam-sep" aria-hidden="true"></span>
+   <button id="sb-radar-toggle" type="button" class="sb-cam-btn sb-cam-accent" aria-pressed="true" title="展开/收起实时极坐标星图雷达与存活天体列表">◎ 星图</button>
+   <button id="sb-log-toggle" type="button" class="sb-cam-btn" aria-pressed="false" title="展开/收起物理演化事件日志">📜 日志 <em id="sb-log-count">0</em></button>
   </div>
   <button id="sb-follow-chip" type="button" class="sb-follow-chip" hidden title="点击取消跟随"></button>
   <span class="sb-cam-tip">右键平移 · 滚轮缩放 · WASD/QE 漫游</span>
+  <div id="sb-radar-panel" class="sb-radar-panel" hidden>
+   <div class="sb-radar-head">
+    <strong>星图雷达</strong>
+    <span id="sb-radar-scale">±6.0 AU</span>
+   </div>
+   <canvas id="sb-radar-canvas" width="188" height="188" title="单击星图任意位置平移视角或选中最近天体"></canvas>
+   <div id="sb-radar-list" class="sb-radar-list" role="list" aria-label="存活天体定位列表"></div>
+  </div>
+  <div id="sb-log-panel" class="sb-log-panel" hidden>
+   <div class="sb-radar-head">
+    <strong>物理事件日志</strong>
+    <button id="sb-log-clear" type="button" class="sb-log-clear">清空</button>
+   </div>
+   <div id="sb-log-list" class="sb-log-list"></div>
+  </div>
  `;
  document.body.append(camBar);
+
+ const radarCanvas = camBar.querySelector('#sb-radar-canvas');
+ const radarCtx = radarCanvas.getContext('2d');
+ const radarListEl = camBar.querySelector('#sb-radar-list');
+ const logListEl = camBar.querySelector('#sb-log-list');
+ let lastRadarRange = 220;
+ let lastRadarCenterX = 0;
+ let lastRadarCenterZ = 0;
 
  camBar.querySelectorAll('[data-cam]').forEach(btn => {
   btn.onclick = () => setCameraView(btn.dataset.cam);
  });
  camBar.querySelector('#sb-follow-chip').onclick = () => followBody(null);
+ camBar.querySelector('#sb-radar-toggle').onclick = () => setRadarOpen(!config.radarOpen);
+ camBar.querySelector('#sb-log-toggle').onclick = () => setLogOpen(!config.logOpen);
+ camBar.querySelector('#sb-log-clear').onclick = () => {
+  eventLog.length = 0;
+  renderEventLogUI();
+ };
+
+ // Interactive Radar Click -> Select & focus nearest body, or pan smoothly to clicked sector!
+ radarCanvas.onclick = ev => {
+  if (!active || !sim) return;
+  const rect = radarCanvas.getBoundingClientRect();
+  const nx = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  const nz = ((ev.clientY - rect.top) / rect.height) * 2 - 1;
+  const wx = lastRadarCenterX + nx * lastRadarRange;
+  const wz = lastRadarCenterZ + nz * lastRadarRange;
+  let nearest = null;
+  let bestD = lastRadarRange * 0.14;
+  for (const e of sim.entities) {
+   if (!e.alive) continue;
+   const d = Math.hypot(e.pos.x - wx, e.pos.z - wz);
+   if (d < bestD) { bestD = d; nearest = e; }
+  }
+  if (nearest) {
+   selectEntity(nearest);
+   focusEntity(nearest.id);
+  } else {
+   followEntity = null;
+   const shift = new THREE.Vector3(wx - controls.target.x, 0, wz - controls.target.z);
+   camAnim = {
+    start: performance.now(),
+    dur: 520,
+    fromPos: camera.position.clone(),
+    toPos: camera.position.clone().add(shift),
+    fromTarget: controls.target.clone(),
+    toTarget: new THREE.Vector3(wx, 0, wz)
+   };
+   updateCamBarUI();
+  }
+ };
+
+ function renderEventLogUI() {
+  if (!camBar) return;
+  const cnt = camBar.querySelector('#sb-log-count');
+  if (cnt) cnt.textContent = String(eventLog.length);
+  if (!logListEl) return;
+  if (eventLog.length === 0) {
+   logListEl.innerHTML = '<div class="sb-log-empty">尚无重大物理事件 · 可尝试碰撞、超临界自转或引力弹弓</div>';
+   return;
+  }
+  logListEl.innerHTML = eventLog.slice(0, 30).map((item, idx) =>
+   `<button type="button" class="sb-log-item" data-log-idx="${idx}" data-kind="${item.badge}"><span class="sb-log-time">T+${item.t.toFixed(1)}s</span><div class="sb-log-copy"><strong>${item.title}</strong><small>${item.detail}</small></div></button>`
+  ).join('');
+  logListEl.querySelectorAll('.sb-log-item').forEach(btn => {
+   btn.onclick = () => {
+    const rec = eventLog[Number(btn.dataset.logIdx)];
+    if (rec?.entityId) {
+     selectEntity(rec.entityId);
+     focusEntity(rec.entityId);
+    }
+   };
+  });
+ }
+
+ function updateRadarUI() {
+  if (!active || !sim || !config.radarOpen || !radarCtx) return;
+  const w = radarCanvas.width, h = radarCanvas.height;
+  const cx = w * 0.5, cy = h * 0.5, padR = w * 0.45;
+  const alive = sim.entities.filter(e => e.alive);
+  const center = sim.star?.alive ? sim.star.pos : sim.barycenter;
+  lastRadarCenterX = center.x;
+  lastRadarCenterZ = center.z;
+
+  let maxD = 125;
+  for (const e of alive) {
+   const d = Math.hypot(e.pos.x - center.x, e.pos.z - center.z);
+   if (d > maxD && d < 520) maxD = d;
+  }
+  lastRadarRange = Math.max(125, maxD * 1.14);
+  const auSpan = (lastRadarRange / 31.4).toFixed(1);
+  camBar.querySelector('#sb-radar-scale').textContent = `±${auSpan} AU`;
+
+  radarCtx.clearRect(0, 0, w, h);
+  radarCtx.fillStyle = 'rgba(5, 11, 22, 0.92)';
+  radarCtx.fillRect(0, 0, w, h);
+
+  // Concentric AU circles & cardinal axes
+  radarCtx.strokeStyle = 'rgba(126, 178, 224, 0.16)';
+  radarCtx.lineWidth = 1;
+  const auStep = lastRadarRange > 220 ? 2 : 1;
+  for (let au = auStep; au * 31.4 < lastRadarRange; au += auStep) {
+   const rr = ((au * 31.4) / lastRadarRange) * padR;
+   radarCtx.beginPath();
+   radarCtx.arc(cx, cy, rr, 0, Math.PI * 2);
+   radarCtx.stroke();
+  }
+  radarCtx.beginPath();
+  radarCtx.moveTo(cx - padR, cy); radarCtx.lineTo(cx + padR, cy);
+  radarCtx.moveTo(cx, cy - padR); radarCtx.lineTo(cx, cy + padR);
+  radarCtx.stroke();
+
+  // Live camera look frustum cone so you ALWAYS know which way you're facing!
+  const camRelX = (camera.position.x - center.x) / lastRadarRange * padR;
+  const camRelZ = (camera.position.z - center.z) / lastRadarRange * padR;
+  camera.getWorldDirection(vA);
+  const lookAng = Math.atan2(vA.z, vA.x);
+  const camX = THREE.MathUtils.clamp(cx + camRelX, 8, w - 8);
+  const camZ = THREE.MathUtils.clamp(cy + camRelZ, 8, h - 8);
+  radarCtx.fillStyle = 'rgba(116, 224, 248, 0.14)';
+  radarCtx.beginPath();
+  radarCtx.moveTo(camX, camZ);
+  radarCtx.arc(camX, camZ, 38, lookAng - 0.36, lookAng + 0.36);
+  radarCtx.closePath();
+  radarCtx.fill();
+  radarCtx.fillStyle = '#7fe8ff';
+  radarCtx.beginPath();
+  radarCtx.arc(camX, camZ, 2.4, 0, Math.PI * 2);
+  radarCtx.fill();
+
+  // Plot all alive celestial bodies
+  for (const e of alive) {
+   const px = cx + ((e.pos.x - center.x) / lastRadarRange) * padR;
+   const py = cy + ((e.pos.z - center.z) / lastRadarRange) * padR;
+   if (px < 4 || px > w - 4 || py < 4 || py > h - 4) continue;
+
+   const isSel = selectedEntity === e;
+   const isFol = followEntity === e;
+   if (isSel || isFol) {
+    radarCtx.strokeStyle = isFol ? '#7efae0' : '#ffd27a';
+    radarCtx.lineWidth = 1.4;
+    radarCtx.beginPath();
+    radarCtx.arc(px, py, 6.2, 0, Math.PI * 2);
+    radarCtx.stroke();
+   }
+
+   if (e.kind === 'bh') {
+    radarCtx.fillStyle = '#05070c';
+    radarCtx.strokeStyle = '#f4be7a';
+    radarCtx.lineWidth = 1.8;
+    radarCtx.beginPath();
+    radarCtx.arc(px, py, 4.4, 0, Math.PI * 2);
+    radarCtx.fill();
+    radarCtx.stroke();
+   } else if (e.kind === 'star') {
+    radarCtx.fillStyle = `#${e.color.getHexString()}`;
+    radarCtx.beginPath();
+    radarCtx.arc(px, py, 4.2, 0, Math.PI * 2);
+    radarCtx.fill();
+   } else if (e.kind === 'neutron' || e.kind === 'white-dwarf') {
+    radarCtx.fillStyle = e.kind === 'white-dwarf' ? '#ffffff' : '#b8a0ff';
+    radarCtx.beginPath();
+    radarCtx.arc(px, py, 3.0, 0, Math.PI * 2);
+    radarCtx.fill();
+   } else if (e.kind === 'probe') {
+    radarCtx.fillStyle = '#6df2d6';
+    radarCtx.fillRect(px - 2, py - 2, 4, 4);
+   } else {
+    radarCtx.fillStyle = `#${e.color.getHexString()}`;
+    const rDot = e.kind === 'moon' || e.kind === 'comet' ? 1.8 : 2.8;
+    radarCtx.beginPath();
+    radarCtx.arc(px, py, rDot, 0, Math.PI * 2);
+    radarCtx.fill();
+   }
+  }
+
+  // Alive body quick-focus list (sorted by astrophysical rank)
+  const rank = k => k === 'bh' ? 0 : k === 'star' ? 1 : k === 'neutron' || k === 'white-dwarf' ? 2 : k === 'planet' ? 3 : k === 'probe' ? 4 : 5;
+  const sorted = [...alive].sort((a, b) => rank(a.kind) - rank(b.kind) || b.mass - a.mass);
+  const sig = sorted.map(e => `${e.id}:${selectedEntity === e ? 1 : 0}:${followEntity === e ? 1 : 0}:${e.impactRing ? 1 : 0}`).join('|');
+  if (radarListEl.dataset.sig !== sig) {
+   radarListEl.dataset.sig = sig;
+   radarListEl.innerHTML = sorted.map(e => {
+    const au = (e.pos.distanceTo(center) / 31.4).toFixed(1);
+    const badge = e.impactRing ? '◎' : e.pinned ? '📌' : '';
+    const activeCls = selectedEntity === e ? ' is-sel' : followEntity === e ? ' is-fol' : '';
+    return `<button type="button" class="sb-rl-item${activeCls}" data-ent-id="${e.id}" title="单击聚焦，双击锁定追踪"><span class="sb-rl-dot" style="background:#${e.color.getHexString()}"></span><span class="sb-rl-name">${e.name}${badge ? ` <em>${badge}</em>` : ''}</span><small>${au} AU</small></button>`;
+   }).join('');
+   radarListEl.querySelectorAll('[data-ent-id]').forEach(btn => {
+    btn.onclick = () => {
+     selectEntity(btn.dataset.entId);
+     focusEntity(btn.dataset.entId);
+    };
+    btn.ondblclick = () => {
+     selectEntity(btn.dataset.entId);
+     followBody(btn.dataset.entId);
+    };
+   });
+  }
+ }
+
+ function setRadarOpen(on) {
+  config.radarOpen = !!on;
+  if (config.radarOpen) config.logOpen = false;
+  updateCamBarUI();
+  if (config.radarOpen) updateRadarUI();
+ }
+
+ function setLogOpen(on) {
+  config.logOpen = !!on;
+  if (config.logOpen) config.radarOpen = false;
+  updateCamBarUI();
+  if (config.logOpen) renderEventLogUI();
+ }
 
  function updateCamBarUI() {
   const chip = camBar.querySelector('#sb-follow-chip');
@@ -3994,6 +4663,10 @@ export function createCosmicSandbox({
   } else {
    chip.hidden = true;
   }
+  camBar.querySelector('#sb-radar-toggle').setAttribute('aria-pressed', String(config.radarOpen));
+  camBar.querySelector('#sb-log-toggle').setAttribute('aria-pressed', String(config.logOpen));
+  camBar.querySelector('#sb-radar-panel').hidden = !config.radarOpen;
+  camBar.querySelector('#sb-log-panel').hidden = !config.logOpen;
  }
 
  // Floating Selected-Body Inspector Card (Left-middle) — High-Visual-Payoff Parameters
@@ -4050,6 +4723,7 @@ export function createCosmicSandbox({
   </div>
   <div class="sb-insp-actions">
    <button id="sb-insp-follow" type="button" class="sb-insp-btn">◎ 追踪</button>
+   <button id="sb-insp-ring" type="button" class="sb-insp-btn" title="为该天体生成或加强持久碎屑星环">◎ 造星环</button>
    <button id="sb-insp-detonate" type="button" class="sb-insp-btn sb-insp-danger">💥 引爆</button>
    <button id="sb-insp-delete" type="button" class="sb-insp-btn">✕ 删除</button>
   </div>
@@ -4075,6 +4749,9 @@ export function createCosmicSandbox({
  };
  inspector.querySelector('#sb-insp-pin').onclick = () => {
   if (selectedEntity?.alive) setEntityPinned(selectedEntity.id, !selectedEntity.pinned);
+ };
+ inspector.querySelector('#sb-insp-ring').onclick = () => {
+  if (selectedEntity?.alive) addEntityRing(selectedEntity.id);
  };
  inspector.querySelector('#sb-insp-detonate').onclick = () => {
   if (selectedEntity?.alive) detonateBody(selectedEntity.id);
@@ -4234,6 +4911,10 @@ export function createCosmicSandbox({
   const followBtn = inspector.querySelector('#sb-insp-follow');
   followBtn.textContent = followEntity === e ? '◉ 追踪中' : '◎ 追踪';
   followBtn.setAttribute('aria-pressed', String(followEntity === e));
+
+  const ringBtn = inspector.querySelector('#sb-insp-ring');
+  ringBtn.hidden = e.kind === 'bh' || e.kind === 'probe';
+  ringBtn.textContent = e.impactRing ? '◎ 加强环' : '◎ 造星环';
 
   const detBtn = inspector.querySelector('#sb-insp-detonate');
   detBtn.hidden = e.kind === 'bh';
@@ -4531,6 +5212,8 @@ export function createCosmicSandbox({
  dock.querySelector('#sb-reset-btn').onclick = () => {
   config.bhMass = baseBhMass;
   config.gravityScale = 1.0;
+  config.planetGravityBoost = 3.0;
+  config.orbitSpread = DEFAULT_ORBIT_SPREAD;
   config.drag = 0;
   config.collisionMode = 'realistic';
   config.allowBreakup = true;
@@ -4867,6 +5550,14 @@ export function createCosmicSandbox({
     mergedCount: e.mergedCount || 0,
     noBreakup: !!e.noBreakup,
     pinned: !!e.pinned,
+    isChthonian: !!e.isChthonian,
+    impactRing: e.impactRing ? {
+     color: [...e.impactRing.color],
+     heat: e.impactRing.heat,
+     density: e.impactRing.density,
+     tiltX: e.impactRing.tiltX,
+     tiltZ: e.impactRing.tiltZ
+    } : null,
     colorHex: `#${e.color.getHexString()}`
    }))
   };
@@ -4906,6 +5597,8 @@ export function createCosmicSandbox({
    ent.mergedCount = rec.mergedCount;
    ent.noBreakup = rec.noBreakup;
    ent.pinned = rec.pinned;
+   ent.isChthonian = !!rec.isChthonian;
+   if (rec.impactRing) attachOrBoostDebrisRing(ent, { ...rec.impactRing, silent: true });
    ent.baseSpeed = ent.vel.length();
    ent.peakSpeed = ent.baseSpeed;
    if (ent.visual) ent.visual.history = [ent.pos.clone()];
@@ -4930,6 +5623,8 @@ export function createCosmicSandbox({
     ent.spinAngle = rec.spinAngle;
     ent.lavaHeat = rec.lavaHeat;
     ent.mergedCount = rec.mergedCount;
+    ent.isChthonian = !!rec.isChthonian;
+    if (rec.impactRing) attachOrBoostDebrisRing(ent, { ...rec.impactRing, silent: true });
    }
   }
 
@@ -5097,6 +5792,17 @@ export function createCosmicSandbox({
   return true;
  }
 
+ function addEntityRing(id) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e || e.kind === 'bh' || e.kind === 'probe') return false;
+  const had = !!e.impactRing;
+  attachOrBoostDebrisRing(e, { heat: 0.85, density: 0.86, silent: true });
+  announceEvent(had ? '星环增密' : '碎屑星环注入', `${e.name} 赤道周围已${had ? '加厚炽热碎屑带' : '铺开持久旋转立体碎屑星环'}`, 'info', 0, e.id);
+  updateInspectorUI();
+  return true;
+ }
+
  function boostEntity(id, factor = 1.35) {
   if (!active || !sim) return false;
   const e = sim.entities.find(x => x.id === id && x.alive);
@@ -5127,6 +5833,10 @@ export function createCosmicSandbox({
   dock.hidden = false;
   camBar.hidden = false;
   dynamicLabelsEl.hidden = false;
+  compassEl.hidden = false;
+  edgeMarkersEl.hidden = false;
+  config.radarOpen = innerWidth >= 1080;
+  config.logOpen = false;
   document.body.dataset.sandbox = 'true';
 
   // Unlock full 3D space navigation inside Sandbox!
@@ -5150,6 +5860,8 @@ export function createCosmicSandbox({
   onEnter();
   initSimulation(hostSimTime);
   setCameraView('overview', true);
+  updateCamBarUI();
+  updateRadarUI();
   showBanner('宇宙沙盒 3.0 已就绪', '宽间距稳态开局 · 支持 0.05×～100× 变速、行星互引配月、静止投放、自转解体与物理法则定制', 'info');
  }
 
@@ -5167,7 +5879,10 @@ export function createCosmicSandbox({
    b.root.scale.set(1, 1, 1);
    b.root.quaternion.identity();
    b.surface.scale.setScalar(pv.baseRadius);
-   if (b.clouds) b.clouds.scale.setScalar(pv.baseRadius * 1.012);
+   if (b.clouds) {
+    b.clouds.visible = true;
+    b.clouds.scale.setScalar(pv.baseRadius * 1.012);
+   }
    if (b.atmosphere) {
     b.atmosphere.rotation.z = 0;
     b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
@@ -5230,6 +5945,8 @@ export function createCosmicSandbox({
   camBar.hidden = true;
   inspector.hidden = true;
   dynamicLabelsEl.hidden = true;
+  compassEl.hidden = true;
+  edgeMarkersEl.hidden = true;
   banner.hidden = true;
   banner.classList.remove('show');
   document.body.dataset.sandbox = 'false';
@@ -5320,9 +6037,10 @@ export function createCosmicSandbox({
   }
 
   telemetryTick += dtReal;
-  if (telemetryTick > 0.16) {
+  if (telemetryTick > 0.14) {
    telemetryTick = 0;
    updateDockUI();
+   if (config.radarOpen) updateRadarUI();
    if (selectedEntity) updateInspectorUI();
   }
  }
@@ -5403,6 +6121,14 @@ export function createCosmicSandbox({
    bigBangs: stats.bigBangs,
    spinBreakups: stats.spinBreakups,
    elasticBounces: stats.elasticBounces,
+   grazingStrips: stats.grazingStrips,
+   ringsFormed: stats.ringsFormed,
+   moonsBorn: stats.moonsBorn,
+   chthonianStrips: stats.chthonianStrips,
+   eventLogCount: eventLog.length,
+   eventLog: eventLog.slice(0, 16),
+   radarOpen: config.radarOpen,
+   logOpen: config.logOpen,
    spawned: stats.spawned,
    scenario: config.scenario,
    orbitSpread: config.orbitSpread,
@@ -5446,6 +6172,8 @@ export function createCosmicSandbox({
     temperature: Math.round(p.temperature || 280),
     noBreakup: !!p.noBreakup,
     pinned: !!p.pinned,
+    hasImpactRing: !!p.impactRing,
+    isChthonian: !!p.isChthonian,
     pos: [+p.pos.x.toFixed(2), +p.pos.y.toFixed(2), +p.pos.z.toFixed(2)]
    })),
    entities: sim.entities.filter(e => e.alive).map(e => ({
@@ -5463,6 +6191,8 @@ export function createCosmicSandbox({
     temperature: Math.round(e.temperature || 0),
     noBreakup: !!e.noBreakup,
     pinned: !!e.pinned,
+    hasImpactRing: !!e.impactRing,
+    isChthonian: !!e.isChthonian,
     pos: [+e.pos.x.toFixed(2), +e.pos.y.toFixed(2), +e.pos.z.toFixed(2)]
    }))
   };
@@ -5536,7 +6266,10 @@ export function createCosmicSandbox({
   triggerPhenomenon,
   spawnBody,
   selectEntity,
+  focusEntity,
   followBody,
+  setRadarOpen,
+  setLogOpen,
   setCameraView,
   setEntityMass,
   setEntityRadius,
@@ -5548,6 +6281,7 @@ export function createCosmicSandbox({
   setEntityTemp,
   setEntityNoBreakup,
   setEntityPinned,
+  addEntityRing,
   boostEntity,
   detonateBody,
   deleteEntity,

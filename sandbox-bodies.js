@@ -172,6 +172,8 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
  diskRingGeo.rotateX(-Math.PI / 2);
  const planetRingGeo = new THREE.RingGeometry(1.32, 2.38, 96, 1);
  planetRingGeo.rotateX(-Math.PI / 2);
+ const impactRingGeo = new THREE.RingGeometry(1.30, 2.85, 112, 1);
+ impactRingGeo.rotateX(-Math.PI / 2);
  const beamConeGeo = new THREE.ConeGeometry(1.0, 1.0, 28, 1, true);
  const probeOctaGeo = new THREE.OctahedronGeometry(1, 0);
 
@@ -1119,6 +1121,95 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
   };
  }
 
+ function createImpactRing(radius, {
+  color = [0.88, 0.78, 0.66],
+  heat = 1.0,
+  density = 0.85,
+  tiltX = 0.14,
+  tiltZ = 0.22,
+  seed = 1.7
+ } = {}) {
+  const uniforms = {
+   uTime: { value: 0 },
+   uSeed: { value: seed },
+   uHeat: { value: heat },
+   uDensity: { value: density },
+   uColor: { value: new THREE.Vector3(...color) },
+   uLight: { value: lightPosition },
+   uCenter: { value: new THREE.Vector3() },
+   uRadius: { value: radius },
+   uHdr: hdrBoost
+  };
+  const mat = new THREE.ShaderMaterial({
+   uniforms,
+   transparent: true,
+   depthWrite: false,
+   side: THREE.DoubleSide,
+   vertexShader: `
+    varying vec3 vLocal,vWorld;
+    void main(){
+     vLocal=position;
+     vWorld=(modelMatrix*vec4(position,1.)).xyz;
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
+    }`,
+   fragmentShader: `
+    precision highp float;
+    varying vec3 vLocal,vWorld;
+    uniform float uTime,uSeed,uHeat,uDensity,uRadius,uHdr;
+    uniform vec3 uColor,uLight,uCenter;
+    ${NOISE_GLSL}
+    void main(){
+     float r=length(vLocal.xz);
+     float u=clamp((r-1.30)/(2.85-1.30),0.,1.);
+     float ang=atan(vLocal.z,vLocal.x);
+     // Differential Keplerian shear swirl + fine debris ringlets
+     float swirl=ang+3.6/max(r,.8)-uTime*(1.15-u*.58);
+     float clumps=fbm3(vec3(cos(swirl)*3.2,u*9.5+uSeed,sin(swirl)*3.2));
+     float bands=.45+.34*sin(u*42.+clumps*2.2)+.21*cos(u*88.-u*6.);
+     float gap=1.-smoothstep(.018,.045,abs(u-.52))*.68;
+     float edge=smoothstep(0.,.10,u)*(1.-smoothstep(.82,1.,u));
+     vec3 toL=normalize(uLight-vWorld);
+     vec3 rel=vWorld-uCenter;
+     float proj=dot(rel,toL);
+     float perp=length(rel-toL*proj);
+     float shadow=(proj<0.&&perp<uRadius*.98)?.22:1.;
+     vec3 coolCol=uColor*(.58+.52*clumps)*bands*shadow;
+     vec3 hotCol=mix(vec3(.96,.36,.08),vec3(1.,.86,.48),smoothstep(.15,.85,clumps*bands*(1.-u*.35)));
+     vec3 col=mix(coolCol,hotCol,clamp(uHeat,0.,1.))*mix(.92,1.28,uHdr);
+     float alpha=clamp(edge*gap*(.34+.62*clumps)*uDensity*(.72+uHeat*.32),0.,.92);
+     if(alpha<=.01)discard;
+     gl_FragColor=vec4(col,alpha);
+     #include <tonemapping_fragment>
+     #include <colorspace_fragment>
+    }`
+  });
+  const mesh = new THREE.Mesh(impactRingGeo, mat);
+  mesh.rotation.set(tiltX, 0, tiltZ);
+  mesh.scale.setScalar(radius);
+  mesh.renderOrder = 3;
+  return {
+   mesh,
+   uniforms,
+   tiltX,
+   tiltZ,
+   heat,
+   density,
+   seed,
+   color: [...color],
+   update(age, entity) {
+    uniforms.uTime.value = age;
+    uniforms.uHeat.value = this.heat;
+    uniforms.uDensity.value = this.density;
+    uniforms.uCenter.value.copy(entity.pos);
+    uniforms.uRadius.value = entity.radius * (entity.oblateXZ || 1);
+    mesh.scale.setScalar(entity.radius * Math.max(1, (entity.oblateXZ || 1) * 0.94));
+   },
+   dispose() {
+    mat.dispose();
+   }
+  };
+ }
+
  function createVisual(typeId, seed, radius) {
   switch (typeId) {
    case 'moon-ice': return createIceMoonVisual(seed, radius);
@@ -1136,5 +1227,5 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
   }
  }
 
- return { createVisual, glowMap };
+ return { createVisual, createImpactRing, glowMap };
 }

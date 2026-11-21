@@ -392,17 +392,20 @@ function moveBodies(){
   for(const m of b.moons){const t=m.phase+state.time/m.period*Math.PI*2;m.mesh.position.set(Math.cos(t)*m.orbitRadius,0,Math.sin(t)*m.orbitRadius).applyEuler(m.track.rotation);m.mesh.rotation.y=state.time*.025;}
  }
  if(star)star.material.uniforms.uTime.value=state.time;
- if(blackHole)blackHole.update({
-  time:state.time,
-  camera,
-  systemFade,
-  orbitsVisible:settings.orbits&&!sandbox?.active,
-  selected:state.selected===SINGULARITY.id,
-  gravityBoost:sandbox?.active?sandbox.blackHoleGravityBoost:(cosmicEvents?.gravityIntensity||0),
-  positionOverride:sandbox?.active?sandbox.blackHolePosition:(cosmicEvents?.blackHolePosition||null),
-  massScale:sandbox?.active?sandbox.blackHoleMassScale:1,
-  suppressAmbientStream:!!sandbox?.active
- });
+ if(blackHole){
+  blackHole.root.visible=!sandbox?.active||sandbox.blackHoleAlive;
+  blackHole.update({
+   time:state.time,
+   camera,
+   systemFade,
+   orbitsVisible:settings.orbits&&!sandbox?.active,
+   selected:state.selected===SINGULARITY.id,
+   gravityBoost:sandbox?.active?sandbox.blackHoleGravityBoost:(cosmicEvents?.gravityIntensity||0),
+   positionOverride:sandbox?.active?sandbox.blackHolePosition:(cosmicEvents?.blackHolePosition||null),
+   massScale:sandbox?.active?sandbox.blackHoleMassScale:1,
+   suppressAmbientStream:!!sandbox?.active
+  });
+ }
 }
 function currentBody(){return bodies.find(b=>b.def.id===state.planet);}
 function targetPosition(){if(state.mode==='singularity'&&blackHole)return blackHole.root.position.clone();const b=currentBody();if(!b)return new THREE.Vector3();if(state.mode==='moon')return b.moons[state.moon].mesh.getWorldPosition(new THREE.Vector3());return b.root.position.clone();}
@@ -463,12 +466,13 @@ function hideFlightStatus(now=false){const el=$('flight-status');clearTimeout(fl
 function projected(object){const world=object.getWorldPosition(new THREE.Vector3());const v=world.clone().project(camera);return{x:(v.x*.5+.5)*innerWidth,y:(-v.y*.5+.5)*innerHeight,z:v.z,world};}
 function updateLabels(){
  const clean=document.body.classList.contains('clean')||!settings.labels;
- if(starLabel){const s=projected(star);starLabel.hidden=state.mode==='star'||clean||s.z>1||s.z<-1||s.x<30||s.x>innerWidth-75||s.y<130||s.y>innerHeight-140;
+ if(starLabel){const starAlive=!sandbox?.active||sandbox.starAlive;const s=projected(star);starLabel.hidden=!starAlive||state.mode==='star'||clean||s.z>1||s.z<-1||s.x<30||s.x>innerWidth-75||s.y<130||s.y>innerHeight-140;
   // Clear the disc on approach: offset by the projected stellar radius like planet labels.
   const starRadius=5.1/camera.position.distanceTo(star.position)*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
   starLabel.style.left=s.x+'px';starLabel.style.top=(s.y+Math.max(42,starRadius+18))+'px';}
  if(blackHole&&blackHoleLabel){
-  const show=!clean&&state.mode!=='singularity';const bp=projected(blackHole.surface);
+  const bhAlive=!sandbox?.active||sandbox.blackHoleAlive;
+  const show=bhAlive&&!clean&&state.mode!=='singularity';const bp=projected(blackHole.surface);
   const foreground=currentBody(),towards=bp.world.clone().sub(camera.position).normalize(),delta=foreground?.root.position.clone().sub(camera.position),along=delta?.dot(towards);
   const occluded=foreground&&along>0&&along<bp.world.distanceTo(camera.position)&&delta.addScaledVector(towards,-along).length()<foreground.def.radius*1.05;
   const bhR=SINGULARITY.radius*2.1/camera.position.distanceTo(blackHole.root.position)*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
@@ -498,8 +502,9 @@ function updateLabels(){
    m.label.style.left=q.x+'px';m.label.style.top=(q.y+18)+'px';
   }
  }
+ if(sandbox?.active)sandbox.updateLabels?.(!clean);
 }
-function resize(){if(!renderer)return;if(intro?.active)intro.finish();camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();const ratio=Math.min(devicePixelRatio,mobile()?1.25:1.5);renderer.setPixelRatio(ratio);renderer.setSize(innerWidth,innerHeight);if(composer){composer.setPixelRatio(ratio);composer.setSize(innerWidth,innerHeight);}if(finish)finish.uniforms.uAberration.value=mobile()?.0012:.0022;focusCamera(true);}
+function resize(){if(!renderer)return;if(intro?.active)intro.finish();camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();const ratio=Math.min(devicePixelRatio,mobile()?1.25:1.5);renderer.setPixelRatio(ratio);renderer.setSize(innerWidth,innerHeight);if(composer){composer.setPixelRatio(ratio);composer.setSize(innerWidth,innerHeight);}if(finish)finish.uniforms.uAberration.value=mobile()?.0012:.0022;if(!sandbox?.active)focusCamera(true);}
 function render(){if(post)composer.render();else renderer.render(scene,camera);}
 function setPost(on){
  post=on&&!!composer;hdrBoost.value=post?1:0;document.body.dataset.post=post?'on':'off';
@@ -548,7 +553,7 @@ function loop(now){
  else if(state.planet){const pos=targetPosition(),delta=pos.clone().sub(lastMovement);camera.position.add(delta);controls.target.add(delta);lastMovement.copy(pos);}
  if(!transition&&camera.fov!==BASE_FOV){camera.fov+=(BASE_FOV-camera.fov)*Math.min(1,dt*5);if(Math.abs(camera.fov-BASE_FOV)<.02)camera.fov=BASE_FOV;camera.updateProjectionMatrix();}
  drift?.update(dt,state.mode==='system'&&!sandbox?.active&&!transition&&!intro?.active&&!reduced.matches&&now-state.lastActivity>DRIFT.idleMs);
- controls.update();updateLabels();intro?.update(now);updateSystemMap();dust?.update({camera,mode:state.mode,dt:moving?dt:0,time:effectTime,sky:settings.sky});skyEvents?.update({dt:moving?dt:0,paused:state.paused,reducedMotion:reduced.matches,transitioning:!!transition,mode:state.mode,planet:state.planet,follow:!!drift?.active,hold:!!intro?.active});if(finish){if(!reduced.matches)finish.uniforms.uTime.value=now*.001;const lens=blackHole?blackHole.screenLens(camera):{x:.5,y:.5,radius:0,strength:0};finish.uniforms.uLensPos.value.set(lens.x,lens.y);finish.uniforms.uLensRadius.value=lens.radius;finish.uniforms.uLensStrength.value=lens.strength;finish.uniforms.uAspect.value=innerWidth/Math.max(innerHeight,1);finish.uniforms.uRipple.value=reduced.matches?0:Math.max(cosmicEvents?.rippleStrength||0,sandbox?.rippleStrength||0);}if(post)bloom.strength=(LOOK.bloom?.strength??.55)*(state.mode==='star'?.5:state.mode==='singularity'?.62:1)*(intro?.bloomGain??1)+(cosmicEvents?.bloomBoost||0)+(sandbox?.bloomBoost||0);const start=performance.now();render();frameSamples.push(performance.now()-start);if(frameSamples.length>180)frameSamples.shift();
+ controls.update();updateLabels();intro?.update(now);updateSystemMap();dust?.update({camera,mode:state.mode,dt:moving?dt:0,time:effectTime,sky:settings.sky});skyEvents?.update({dt:moving?dt:0,paused:state.paused,reducedMotion:reduced.matches,transitioning:!!transition,mode:state.mode,planet:state.planet,follow:!!drift?.active,hold:!!intro?.active});if(finish){if(!reduced.matches)finish.uniforms.uTime.value=now*.001;const lens=(blackHole&&(!sandbox?.active||sandbox.blackHoleAlive))?blackHole.screenLens(camera):{x:.5,y:.5,radius:0,strength:0};finish.uniforms.uLensPos.value.set(lens.x,lens.y);finish.uniforms.uLensRadius.value=lens.radius;finish.uniforms.uLensStrength.value=lens.strength;finish.uniforms.uAspect.value=innerWidth/Math.max(innerHeight,1);finish.uniforms.uRipple.value=reduced.matches?0:Math.max(cosmicEvents?.rippleStrength||0,sandbox?.rippleStrength||0);}if(post)bloom.strength=(LOOK.bloom?.strength??.55)*(state.mode==='star'?.5:state.mode==='singularity'?.62:1)*(intro?.bloomGain??1)+(cosmicEvents?.bloomBoost||0)+(sandbox?.bloomBoost||0);const start=performance.now();render();frameSamples.push(performance.now()-start);if(frameSamples.length>180)frameSamples.shift();
 }
 function init(){
  try{
@@ -572,7 +577,7 @@ function init(){
   const updateSkyEventStatus=(id,story)=>{const status=$('sky-event-status');if(id&&story){status.hidden=false;status.dataset.event=id;status.querySelector('strong').textContent=story[0];status.querySelector('p').textContent=story[1];}else if(!skyEvents?.active&&!cosmicEvents?.active){status.hidden=true;status.dataset.event='';}};
   skyEvents=createSkyPhenomena({THREE,scene,camera,bodies,seventhLit:()=>!!discoveries?.has('seventh'),onChange:updateSkyEventStatus});
   cosmicEvents=createCosmicEvents({THREE,scene,camera,bodies,blackHole,star,corona,halo,lightPosition,belt:comet.userData.belt,dust,LOOK,hdrBoost,onChange:updateSkyEventStatus});
-  sandbox=createCosmicSandbox({THREE,scene,camera,renderer,controls,bodies,blackHole,star,corona,halo,lightPosition,belt:comet.userData.belt,dust,LOOK,hdrBoost,singularityDef:SINGULARITY,onEnter:()=>{$('view-label').textContent='宇宙沙盒';$('scale-label').textContent='实时 N-Body';},onExit:()=>{moveBodies();updateDetails();}});
+  sandbox=createCosmicSandbox({THREE,scene,camera,renderer,controls,bodies,blackHole,star,corona,halo,lightPosition,belt:comet.userData.belt,dust,LOOK,hdrBoost,singularityDef:SINGULARITY,onEnter:()=>{$('view-label').textContent='宇宙沙盒';$('scale-label').textContent='实时 N-Body · 自由造物';},onExit:()=>{moveBodies();focusCamera(true);updateDetails();}});
   discoveries=createDiscoveries({THREE,scene,planets:PLANETS,onReplay:replayDiscovery,onProgress:s=>eggs?.progress(s),onDiscovery:entry=>{$('discovery-note').textContent='观测手记已收录：'+entry.title;const event={'voyager':'constellation','still-comet':'meteors','tides':'aurora','old-signal':'signal'}[entry.id];if(event)skyEvents.queue(event);}});applySettings();moveBodies();ready=true;setupPost();resize();
   drift=createDrift({THREE,camera,controls});
   eggs=createEggs({THREE,scene,camera,controls,bodies,state,discoveries,skyEvents,navigate,toast,reduced,journalSize:JOURNAL_ENTRIES.length,isTransitioning:()=>!!transition,isDrifting:()=>!!drift?.active,pixelRatio:()=>renderer.getPixelRatio(),closeRig:()=>({height:LOOK.closeHeight,distance:mobile()?9.5:LOOK.closeDistance,offset:mobile()?0:1.12,drop:mobile()?1.05:0})});

@@ -75,7 +75,7 @@ async function browserChecks() {
   assert.equal(await page.evaluate(() => observatory.mode), 'system');
   assert.equal(await page.locator('#title').textContent(), '归墟');
   assert.ok((await page.locator('#portrait').getAttribute('src')).startsWith('data:image/'));
-  assert.ok((await page.locator('#planet-action button').textContent()).includes('引力牵引'));
+  assert.ok((await page.locator('#planet-action button').first().textContent()).includes('引力牵引'));
   await shot('02-blackhole-card');
   mark('Guixu archive card explains Hill stability sphere and exposes gravitational pull drill');
 

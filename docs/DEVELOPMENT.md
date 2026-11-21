@@ -13,6 +13,7 @@
 | `intro.js` | 开场序列与全景闲置漂移 |
 | `dust.js` | 多层视差星际尘埃（含引力场扰动耦合） |
 | `cosmic.js` | 远距暗伴体黑洞「归墟」（含希尔稳定界与潮汐尘埃流）、黑洞引力牵引 N-body 演练（洛希瓣恒星吸积流与双引力势井网格）及远空超新星爆发 |
+| `sandbox.js` / `sandbox.css` | 可选「宇宙沙盒」互动模式（Velocity Verlet 全 N-Body 互引、黑洞洛希极限潮汐撕裂 TDE、行星大撞击熔融合并与超高速粉碎、天体抓取轻甩与轨迹预测、子弹时间及可选物理辅助线） |
 | `vendor/postprocessing/`、`vendor/shaders/` | 来自 three `examples/jsm` 的 HDR 后期链（泛光、输出通道） |
 | `gallery.html` | 实际渲染截图对比 |
 | `vendor/` | 本地依赖、字体、纹理、肖像与预览 |

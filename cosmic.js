@@ -616,13 +616,16 @@ export function createBlackHole({ THREE, scene, LOOK, hdrBoost }) {
   orbitsVisible = true,
   selected = false,
   gravityBoost = 0,
-  positionOverride = null
+  positionOverride = null,
+  massScale = 1,
+  suppressAmbientStream = false
  }) {
   if (positionOverride) {
    root.position.copy(positionOverride);
   } else {
    basePosition(time, root.position);
   }
+  root.scale.setScalar(massScale);
 
   horizonUniforms.uTime.value = time;
   diskUniforms.uTime.value = time;
@@ -641,7 +644,7 @@ export function createBlackHole({ THREE, scene, LOOK, hdrBoost }) {
   trickleUniforms.uTime.value = time;
   trickleUniforms.uSource.value.copy(streamSource);
   trickleUniforms.uTarget.value.copy(root.position);
-  trickleUniforms.uFade.value = systemFade * (1 - Math.min(1, gravityBoost * 1.4));
+  trickleUniforms.uFade.value = suppressAmbientStream ? 0 : systemFade * (1 - Math.min(1, gravityBoost * 1.4));
   ambientStream.visible = trickleUniforms.uFade.value > 0.01;
 
   worldAxis.set(0, 1, 0).applyQuaternion(tiltGroup.quaternion).normalize();
@@ -676,7 +679,8 @@ export function createBlackHole({ THREE, scene, LOOK, hdrBoost }) {
   if (u < -0.25 || u > 1.25 || v < -0.25 || v > 1.25) return { x: 0.5, y: 0.5, radius: 0, strength: 0 };
   const dist = camera.position.distanceTo(root.position);
   const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-  const screenR = THREE.MathUtils.clamp(R / Math.max(dist * halfH * 2, 1), 0.008, 0.24);
+  const effR = R * (root.scale.x || 1);
+  const screenR = THREE.MathUtils.clamp(effR / Math.max(dist * halfH * 2, 1), 0.008, 0.28);
   const closeness = THREE.MathUtils.smoothstep(screenR, 0.012, 0.11);
   return { x: u, y: v, radius: screenR, strength: 0.14 + closeness * 0.72 };
  }

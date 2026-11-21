@@ -132,6 +132,58 @@ body[data-sandbox="true"] .planet-label {
  background: #6df2d6;
  box-shadow: 0 0 8px rgba(109, 242, 214, 0.95);
 }
+.sb-dyn-label.sb-kind-moon:before {
+ background: #d2ecff;
+ box-shadow: 0 0 6px rgba(190, 228, 255, 0.85);
+}
+.sb-dyn-label.sb-kind-white-dwarf:before {
+ background: #ffffff;
+ box-shadow: 0 0 10px rgba(186, 232, 255, 1);
+}
+
+/* Floating Live Launch Speed / Orbital Verdict Cursor HUD */
+#sb-aim-hud {
+ position: fixed;
+ z-index: 30;
+ pointer-events: none;
+ display: grid;
+ gap: 2px;
+ padding: 6px 10px;
+ border-radius: 6px;
+ border: 1px solid rgba(132, 214, 248, 0.55);
+ background: rgba(7, 15, 28, 0.90);
+ backdrop-filter: blur(12px);
+ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+ white-space: nowrap;
+}
+#sb-aim-hud[hidden] {
+ display: none;
+}
+#sb-aim-hud strong {
+ font: 600 12px Consolas, 'Cascadia Mono', monospace;
+ font-variant-numeric: tabular-nums;
+ color: #eef8ff;
+}
+#sb-aim-hud span {
+ font-size: 10px;
+ color: #9fc4e2;
+ font-variant-numeric: tabular-nums;
+}
+#sb-aim-hud[data-tone="danger"] {
+ border-color: rgba(255, 114, 88, 0.72);
+}
+#sb-aim-hud[data-tone="danger"] strong {
+ color: #ffb49e;
+}
+#sb-aim-hud[data-tone="gold"] {
+ border-color: rgba(250, 206, 114, 0.72);
+}
+#sb-aim-hud[data-tone="gold"] strong {
+ color: #ffe298;
+}
+#sb-aim-hud[data-tone="still"] {
+ border-color: rgba(176, 198, 222, 0.52);
+}
 .sb-dyn-label small {
  font: 9.5px Consolas, 'Cascadia Mono', monospace;
  color: #a8c2d8;
@@ -324,18 +376,22 @@ body[data-sandbox="true"] .planet-label {
 /* Left-Middle Selected Body Inspector Card */
 #sb-inspector {
  position: fixed;
- left: clamp(20px, 3vw, 44px);
- top: 204px;
+ left: clamp(16px, 2.2vw, 32px);
+ top: 152px;
  z-index: 23;
- width: 256px;
- padding: 13px 15px;
+ width: 288px;
+ max-height: calc(100vh - 282px);
+ overflow-y: auto;
+ scrollbar-width: thin;
+ scrollbar-color: rgba(164, 200, 232, 0.3) transparent;
+ padding: 12px 13px;
  border-radius: var(--ui-r-card, 8px);
  border: 1px solid rgba(176, 212, 240, 0.34);
  background: linear-gradient(155deg, rgba(11, 21, 38, 0.92), rgba(6, 11, 22, 0.95));
  box-shadow: inset 0 1px 0 rgba(220, 238, 255, 0.14), 0 16px 38px rgba(0, 0, 0, 0.48);
  backdrop-filter: blur(18px);
  display: grid;
- gap: 10px;
+ gap: 8px;
 }
 #sb-inspector[hidden] {
  display: none;
@@ -343,7 +399,120 @@ body[data-sandbox="true"] .planet-label {
 .sb-insp-head {
  display: flex;
  align-items: center;
- gap: 9px;
+ gap: 8px;
+}
+.sb-insp-pill {
+ font-size: 9.5px;
+ padding: 2px 7px;
+ border-radius: 999px;
+ border: 1px solid rgba(132, 206, 244, 0.38);
+ background: rgba(24, 54, 82, 0.52);
+ color: #bfe8ff;
+ white-space: nowrap;
+}
+.sb-insp-pill[data-state="escape"] {
+ border-color: rgba(248, 198, 108, 0.55);
+ background: rgba(94, 62, 22, 0.5);
+ color: #ffe0a0;
+}
+.sb-insp-pill[data-state="pinned"] {
+ border-color: rgba(124, 236, 212, 0.55);
+ background: rgba(18, 62, 66, 0.55);
+ color: #a8fff0;
+}
+.sb-insp-pill[data-state="still"] {
+ border-color: rgba(174, 194, 214, 0.4);
+ background: rgba(34, 46, 62, 0.55);
+ color: #d6e4f2;
+}
+.sb-insp-metrics {
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ gap: 6px 8px;
+ padding: 7px 9px;
+ border-radius: 5px;
+ background: rgba(16, 28, 46, 0.56);
+ border: 1px solid rgba(168, 200, 230, 0.14);
+}
+.sb-insp-metrics strong[data-warn="hot"] {
+ color: #ffd486;
+}
+.sb-insp-metrics strong[data-warn="crit"] {
+ color: #ff8a66;
+}
+.sb-insp-sliders {
+ display: grid;
+ gap: 7px;
+}
+.sb-insp-slider {
+ display: grid;
+ gap: 4px;
+}
+.sb-insp-slider[hidden] {
+ display: none;
+}
+.sb-insp-slider > span {
+ display: flex;
+ align-items: baseline;
+ gap: 6px;
+ font-size: 10.5px;
+ color: #c4d6e6;
+}
+.sb-insp-slider output {
+ font: 10.5px Consolas, 'Cascadia Mono', monospace;
+ font-variant-numeric: tabular-nums;
+ color: #eef7ff;
+}
+.sb-insp-slider em {
+ margin-left: auto;
+ font-style: normal;
+ font-size: 9px;
+ color: #f2c48a;
+}
+.sb-insp-mini-row {
+ display: grid;
+ grid-template-columns: repeat(3, 1fr);
+ gap: 4px;
+ margin-top: 2px;
+}
+.sb-insp-mini {
+ min-height: 22px;
+ padding: 0 5px;
+ border-radius: 4px;
+ border: 1px solid rgba(168, 202, 232, 0.22);
+ background: rgba(20, 34, 56, 0.62);
+ color: #c8def2;
+ font-size: 10px;
+ white-space: nowrap;
+}
+.sb-insp-mini:hover {
+ color: #fff;
+ border-color: rgba(196, 228, 252, 0.6);
+ background: rgba(36, 62, 96, 0.8);
+}
+.sb-insp-locks {
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ gap: 5px;
+}
+.sb-insp-lock {
+ min-height: 26px;
+ padding: 0 7px;
+ border-radius: 4px;
+ border: 1px solid rgba(170, 202, 230, 0.24);
+ background: rgba(18, 30, 50, 0.62);
+ color: #c6d9ec;
+ font-size: 10.5px;
+ white-space: nowrap;
+}
+.sb-insp-lock:hover {
+ color: #fff;
+ border-color: rgba(206, 230, 252, 0.56);
+}
+.sb-insp-lock[aria-pressed="true"] {
+ color: #fff2cc;
+ border-color: rgba(246, 198, 114, 0.72);
+ background: linear-gradient(180deg, rgba(134, 92, 34, 0.54), rgba(76, 50, 20, 0.66));
 }
 .sb-insp-dot {
  width: 10px;
@@ -382,40 +551,15 @@ body[data-sandbox="true"] .planet-label {
  color: #fff;
  background: rgba(160, 196, 230, 0.14);
 }
-.sb-insp-metrics {
- display: grid;
- grid-template-columns: 1fr 1fr;
- gap: 8px;
- padding: 7px 9px;
- border-radius: 5px;
- background: rgba(16, 28, 46, 0.56);
- border: 1px solid rgba(168, 200, 230, 0.14);
-}
 .sb-insp-metrics span {
  display: block;
- font-size: 9.5px;
+ font-size: 9px;
  color: #8da6be;
 }
 .sb-insp-metrics strong {
- font: 11.5px Consolas, 'Cascadia Mono', monospace;
+ font: 11px Consolas, 'Cascadia Mono', monospace;
  font-variant-numeric: tabular-nums;
  color: #e8f4ff;
-}
-.sb-insp-slider {
- display: grid;
- gap: 5px;
-}
-.sb-insp-slider > span {
- display: flex;
- justify-content: space-between;
- align-items: baseline;
- font-size: 10.5px;
- color: #c4d6e6;
-}
-.sb-insp-slider em {
- font-style: normal;
- font-size: 9.5px;
- color: #f2c48a;
 }
 .sb-insp-slider input[type="range"] {
  -webkit-appearance: none;
@@ -487,6 +631,76 @@ body[data-sandbox="true"] .planet-label {
 }
 #sandbox-dock[hidden] {
  display: none;
+}
+
+/* Global Physics Laws Drawer above Main Dock */
+.sb-laws-bar {
+ display: grid;
+ gap: 8px;
+ padding: 10px 14px;
+ border-radius: var(--ui-r-card, 8px);
+ border: 1px solid rgba(242, 196, 128, 0.38);
+ background:
+  radial-gradient(ellipse 72% 110% at 50% 0%, rgba(242, 190, 112, 0.12), transparent 74%),
+  linear-gradient(180deg, rgba(16, 20, 34, 0.94), rgba(7, 11, 22, 0.96));
+ backdrop-filter: blur(18px);
+ box-shadow: inset 0 1px 0 rgba(255, 232, 196, 0.14), 0 12px 34px rgba(0, 0, 0, 0.48);
+}
+.sb-laws-bar[hidden] {
+ display: none;
+}
+.sb-laws-grid {
+ display: grid;
+ grid-template-columns: repeat(5, minmax(120px, 1fr));
+ gap: 10px 14px;
+}
+.sb-laws-row {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 7px;
+ padding-top: 6px;
+ border-top: 1px solid rgba(176, 206, 232, 0.14);
+}
+.sb-laws-seg,
+.sb-laws-snap {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 4px;
+}
+.sb-laws-snap {
+ margin-left: auto;
+}
+.sb-law-chip {
+ min-height: 27px;
+ padding: 0 9px;
+ border-radius: calc(var(--ui-r, 4px) + 1px);
+ border: 1px solid rgba(176, 206, 232, 0.22);
+ background: rgba(18, 30, 48, 0.58);
+ color: #c8daeb;
+ font-size: 11px;
+ white-space: nowrap;
+ transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.sb-law-chip:hover:not(:disabled) {
+ color: #fff;
+ border-color: rgba(242, 202, 138, 0.62);
+ background: rgba(56, 48, 36, 0.72);
+}
+.sb-law-chip:disabled {
+ opacity: 0.42;
+ cursor: not-allowed;
+}
+.sb-law-chip[aria-pressed="true"] {
+ color: #fff3da;
+ border-color: rgba(246, 198, 120, 0.78);
+ background: linear-gradient(180deg, rgba(142, 98, 42, 0.52), rgba(82, 54, 24, 0.64));
+}
+.sb-law-breakup[aria-pressed="true"] {
+ color: #eafffa;
+ border-color: rgba(114, 240, 212, 0.78);
+ background: linear-gradient(180deg, rgba(28, 108, 98, 0.54), rgba(16, 62, 64, 0.66));
 }
 
 /* Scenario & Phenomena Drawer above Main Dock */
@@ -619,12 +833,9 @@ body[data-sandbox="true"] .planet-label {
 
 /* Spawn Palette Drawer above Main Dock */
 .sb-spawn-bar {
- display: flex;
- flex-wrap: wrap;
- align-items: center;
- justify-content: center;
- gap: 8px;
- padding: 7px 12px;
+ display: grid;
+ gap: 6px;
+ padding: 8px 12px;
  border-radius: var(--ui-r-card, 8px);
  border: 1px solid rgba(124, 224, 208, 0.36);
  background:
@@ -634,6 +845,42 @@ body[data-sandbox="true"] .planet-label {
  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.44);
 }
 .sb-spawn-bar[hidden] {
+ display: none;
+}
+.sb-spawn-opts {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ justify-content: center;
+ gap: 7px;
+ padding-top: 5px;
+ border-top: 1px solid rgba(154, 208, 218, 0.14);
+}
+.sb-spawn-modes {
+ display: inline-flex;
+ align-items: center;
+ gap: 4px;
+}
+.sb-mode-chip {
+ min-height: 25px;
+ padding: 0 9px;
+ border-radius: calc(var(--ui-r, 4px) + 1px);
+ border: 1px solid rgba(170, 204, 230, 0.22);
+ background: rgba(18, 30, 48, 0.58);
+ color: #c4d8ea;
+ font-size: 10.5px;
+ white-space: nowrap;
+}
+.sb-mode-chip:hover {
+ color: #fff;
+ border-color: rgba(132, 236, 214, 0.55);
+}
+.sb-mode-chip[aria-pressed="true"] {
+ color: #eafffa;
+ border-color: rgba(116, 240, 214, 0.74);
+ background: linear-gradient(180deg, rgba(36, 108, 104, 0.52), rgba(20, 62, 68, 0.64));
+}
+.sb-mode-chip[hidden] {
  display: none;
 }
 .sb-spawn-list {
@@ -819,6 +1066,43 @@ body[data-sandbox="true"] .planet-label {
  border-color: rgba(202, 166, 255, 0.74);
  background: linear-gradient(180deg, rgba(102, 72, 168, 0.48), rgba(56, 38, 102, 0.62));
 }
+.sb-pill.sb-laws-toggle[aria-pressed="true"] {
+ color: #fff4dd;
+ border-color: rgba(246, 198, 122, 0.76);
+ background: linear-gradient(180deg, rgba(146, 102, 42, 0.50), rgba(84, 56, 22, 0.62));
+}
+.sb-speed-slider {
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ padding-left: 5px;
+}
+.sb-speed-slider input[type="range"] {
+ -webkit-appearance: none;
+ appearance: none;
+ width: 88px;
+ height: 4px;
+ border-radius: 999px;
+ outline: none;
+ cursor: pointer;
+ background: linear-gradient(90deg, rgba(138, 212, 255, 0.9) var(--pct, 40%), rgba(164, 192, 220, 0.22) var(--pct, 40%));
+}
+.sb-speed-slider input[type="range"]::-webkit-slider-thumb {
+ -webkit-appearance: none;
+ width: 12px;
+ height: 12px;
+ border-radius: 50%;
+ border: 1.5px solid #eff8ff;
+ background: #14263d;
+ box-shadow: 0 0 8px rgba(138, 212, 255, 0.65);
+}
+.sb-speed-slider output {
+ min-width: 36px;
+ text-align: right;
+ font: 11px Consolas, 'Cascadia Mono', monospace;
+ font-variant-numeric: tabular-nums;
+ color: #e8f5ff;
+}
 .sb-act.sb-exit {
  border-color: rgba(228, 152, 136, 0.34);
  color: #f0cfc8;
@@ -889,15 +1173,19 @@ body[data-sandbox="true"] .planet-label {
 body[data-look="atlas"] #sandbox-dock .sb-bar,
 body[data-look="atlas"] #sandbox-dock .sb-spawn-bar,
 body[data-look="atlas"] #sandbox-dock .sb-scenario-bar,
+body[data-look="atlas"] #sandbox-dock .sb-laws-bar,
 body[data-look="atlas"] #sandbox-dock .sb-telemetry,
 body[data-look="atlas"] #sb-cam-bar .sb-cam-views,
 body[data-look="atlas"] #sb-inspector,
+body[data-look="atlas"] #sb-aim-hud,
 body[data-look="atlas"] #sandbox-banner,
 body[data-look="atlas"] #enter-sandbox,
 body[data-look="atlas"] .sb-pill,
 body[data-look="atlas"] .sb-chip,
 body[data-look="atlas"] .sb-act,
 body[data-look="atlas"] .sb-spawn-chip,
+body[data-look="atlas"] .sb-mode-chip,
+body[data-look="atlas"] .sb-law-chip,
 body[data-look="atlas"] .sb-scen-chip,
 body[data-look="atlas"] .sb-phen-btn,
 body[data-look="atlas"] .sb-cam-btn {
@@ -935,6 +1223,7 @@ body[data-look="cinema"] #sandbox-dock .sb-bar {
   top: auto;
   bottom: 186px;
   width: auto;
+  max-height: 44vh;
   padding: 10px 12px;
  }
  #sandbox-dock {
@@ -946,9 +1235,20 @@ body[data-look="cinema"] #sandbox-dock .sb-bar {
   gap: 6px;
  }
  .sb-spawn-bar,
- .sb-scenario-bar {
+ .sb-scenario-bar,
+ .sb-laws-bar {
   padding: 6px 8px;
   gap: 5px;
+ }
+ .sb-laws-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+ }
+ .sb-laws-snap {
+  margin-left: 0;
+ }
+ .sb-speed-slider input[type="range"] {
+  width: 64px;
  }
  .sb-drawer-label {
   display: none;

@@ -77,10 +77,27 @@ async function runChecks() {
   assert.equal(nbodyStats.enablePan, true, 'sandbox must unlock free 3D camera pan');
   assert.ok(nbodyStats.starDisp > 0.25, `Alkaid must move via real binary gravity (got ${nbodyStats.starDisp})`);
   assert.ok(nbodyStats.bhDisp > 0.15, `Guixu must move via mutual N-body gravity (got ${nbodyStats.bhDisp})`);
-  assert.equal(nbodyStats.alivePlanets, 6, 'all 6 planets alive before collision');
+  assert.equal(nbodyStats.alivePlanets, 6, 'all 6 planets must remain alive without spontaneous collisions');
+  assert.equal(nbodyStats.impacts, 0, 'calm wide startup must have zero spontaneous impacts');
+  assert.equal(nbodyStats.disrupted, 0, 'calm wide startup must have zero spontaneous disruptions');
+
+  // Verify true 100x fast-forward advances simTime smoothly without tunneling/exploding
+  const tBefore = nbodyStats.simTime;
+  await page.evaluate(() => window.observatory.sandbox.setSpeed(100));
+  await page.waitForTimeout(700);
+  const fastStats = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   const st = sb.stats();
+   sb.setSpeed(1);
+   return st;
+  });
+  report.metrics.fast100x = { tBefore, tAfter: fastStats.simTime, alivePlanets: fastStats.alivePlanets, impacts: fastStats.impacts };
+  assert.ok(fastStats.simTime - tBefore > 6, `100x speed must advance simTime rapidly (delta=${(fastStats.simTime - tBefore).toFixed(2)})`);
+  assert.equal(fastStats.alivePlanets, 6, 'wide calm system must stay intact even during 100x burst');
+
   await page.screenshot({ path: path.join(OUT, '02-sandbox-active-overlays.png') });
   report.screenshots.push('02-sandbox-active-overlays.png');
-  mark('nbody-verlet-free-camera-and-overlays');
+  mark('nbody-verlet-calm-wide-startup-and-100x-speed');
 
   // 4. Black Hole Roche Planetary Tidal Disruption (TDE)
   await page.evaluate(() => {
@@ -295,7 +312,125 @@ async function runChecks() {
   report.screenshots.push('12-big-bang-rebirth.png');
   mark('phase2-antigravity-comet-storm-bigbang-all-5-eggs');
 
-  // 13. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
+  // 13. NEW Phase 3A: Global Physics Laws Drawer, Stationary 0 km/s Spawn, Planet-Planet Moon Capture, Pin Anchor & Snapshot!
+  await page.click('#sb-reset-btn');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().alivePlanets === 6, null, { timeout: 5000 });
+  await page.click('#sb-laws-btn');
+  await page.waitForSelector('#sb-laws-bar', { state: 'visible' });
+  const phase3aSetup = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setSpeed(0);
+   sb.setPlanetGravityBoost(8.0);
+   // 1) Stationary spawn check
+   const stillBody = sb.spawnBody('rocky', [58, 0, -34], null, { stationary: true, name: '静止测试星' });
+   const stillSpd = stillBody.vel.length();
+   // 2) Moon capture around gas giant Suxian using upgraded dominantAttractorNear!
+   const sux = sb.stats().entities.find(e => e.id === 'suxian');
+   sb.setEntityPinned('suxian', true);
+   const moon = sb.spawnBody('moon-ice', [sux.pos[0] + 10.5, 0, sux.pos[2]], null, { name: '苏仙冰月' });
+   const moonInitDist = Math.hypot(moon.pos.x - sux.pos[0], moon.pos.z - sux.pos[2]);
+   sb.saveSnapshot();
+   return { stillId: stillBody.id, stillSpd, moonId: moon.id, moonInitDist, suxInitPos: sux.pos, hasSnap: sb.stats().hasSnapshot };
+  });
+  assert.ok(phase3aSetup.stillSpd < 0.01, `stationary spawn must have 0 speed (got ${phase3aSetup.stillSpd})`);
+  assert.equal(phase3aSetup.hasSnap, true, 'snapshot must be saved');
+
+  await page.evaluate(() => window.observatory.sandbox.setSpeed(1.8));
+  await page.waitForTimeout(1100);
+  const phase3aMid = await page.evaluate(({ moonId, suxInitPos }) => {
+   const sb = window.observatory.sandbox;
+   const ents = sb.stats().entities;
+   const sux = ents.find(e => e.id === 'suxian');
+   const moon = ents.find(e => e.id === moonId);
+   const suxMove = sux ? Math.hypot(sux.pos[0] - suxInitPos[0], sux.pos[2] - suxInitPos[2]) : 999;
+   const moonDist = (sux && moon) ? Math.hypot(moon.pos[0] - sux.pos[0], moon.pos[2] - sux.pos[2]) : 999;
+   return { suxMove, moonDist, moonAlive: !!moon };
+  }, { moonId: phase3aSetup.moonId, suxInitPos: phase3aSetup.suxInitPos });
+  report.metrics.phase3aLaws = { phase3aSetup, phase3aMid };
+  assert.ok(phase3aMid.suxMove < 0.05, `pinned spatial anchor must not move (moved ${phase3aMid.suxMove})`);
+  assert.ok(phase3aMid.moonAlive && phase3aMid.moonDist < 22, `ice moon must stay bound orbiting Suxian (dist=${phase3aMid.moonDist.toFixed(1)})`);
+  await page.screenshot({ path: path.join(OUT, '13-phase3a-laws-moon-capture.png') });
+  report.screenshots.push('13-phase3a-laws-moon-capture.png');
+
+  // Verify Snapshot Restore recovers deleted planets & saved laws cleanly
+  const snapRestore = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.deleteEntity('jixi');
+   const afterDel = sb.stats().alivePlanets;
+   sb.restoreSnapshot();
+   const afterRest = sb.stats().alivePlanets;
+   return { afterDel, afterRest };
+  });
+  assert.equal(snapRestore.afterDel, 5, 'deleteEntity should reduce alive planets to 5');
+  assert.equal(snapRestore.afterRest, 6, 'restoreSnapshot must recover all 6 planets');
+  mark('phase3a-laws-stationary-moon-capture-pin-snapshot');
+
+  // 14. NEW Phase 3A: Critical Spin Breakup vs Breakup-Lock + Upgraded Inspector + White Dwarf Type Ia + Elastic Bounce!
+  await page.click('#sb-laws-btn'); // close laws drawer so inspector screenshot is super clean
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.reset();
+   sb.setSpeed(1.5);
+   sb.selectEntity('lingxi');
+   sb.followBody('lingxi');
+   const ent = sb.stats().entities.find(e => e.id === 'lingxi');
+   sb.setEntityNoBreakup('lingxi', true);
+   sb.setEntitySpin('lingxi', (ent.criticalSpin || 1.2) * 1.75);
+   sb.setEntityTemp('lingxi', 2800);
+  });
+  await page.waitForTimeout(900);
+  const spinProtected = await page.evaluate(() => {
+   const st = window.observatory.sandbox.stats();
+   const lx = st.planets.find(p => p.id === 'lingxi');
+   return {
+    alive: lx?.alive,
+    spinRatio: lx?.spinRatio,
+    temp: lx?.temperature,
+    noBreakup: lx?.noBreakup,
+    inspHidden: document.getElementById('sb-inspector').hidden
+   };
+  });
+  assert.equal(spinProtected.alive, true, 'breakup-locked body must survive supercritical spin without disintegrating');
+  assert.ok(spinProtected.spinRatio >= 1.4, `spinRatio must exceed critical 1.0 (got ${spinProtected.spinRatio})`);
+  assert.equal(spinProtected.inspHidden, false, 'upgraded inspector must be visible');
+  await page.screenshot({ path: path.join(OUT, '14-phase3a-inspector-spin-lock.png') });
+  report.screenshots.push('14-phase3a-inspector-spin-lock.png');
+
+  // Unlock breakup -> supercritical spin must tear the body apart!
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setEntityNoBreakup('lingxi', false);
+   sb.setSpeed(2.0);
+  });
+  await page.waitForFunction(() => window.observatory.sandbox.stats().spinBreakups >= 1, null, { timeout: 8000 });
+
+  // White Dwarf Chandrasekhar >= 1.44 M☉ -> Type Ia Supernova + Elastic Billiard Mode Bounce!
+  const wdAndElastic = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   const wd = sb.spawnBody('white-dwarf', [30, 0, -20], [0, 0, 0], { name: '钱德拉白矮星' });
+   sb.setEntityMass(wd.id, 1.5);
+   sb.setCollisionMode('elastic');
+   const rA = sb.spawnBody('rocky', [10, 0, 40], [10, 0, 0], { name: '台球甲' });
+   const rB = sb.spawnBody('rocky', [20, 0, 40], [-10, 0, 0], { name: '台球乙' });
+   return { typeIa: sb.stats().typeIaSupernovae, idA: rA.id, idB: rB.id };
+  });
+  await page.waitForFunction(() => window.observatory.sandbox.stats().elasticBounces >= 1, null, { timeout: 8000 });
+  const elasticAfter = await page.evaluate(({ idA, idB }) => {
+   const st = window.observatory.sandbox.stats();
+   return {
+    bounces: st.elasticBounces,
+    spinBreakups: st.spinBreakups,
+    typeIa: st.typeIaSupernovae,
+    bothAlive: st.entities.some(e => e.id === idA) && st.entities.some(e => e.id === idB)
+   };
+  }, { idA: wdAndElastic.idA, idB: wdAndElastic.idB });
+  report.metrics.phase3aSpinAndIa = { spinProtected, elasticAfter };
+  assert.ok(elasticAfter.spinBreakups >= 1, 'unlocking breakup must trigger centrifugal spin disintegration');
+  assert.ok(elasticAfter.typeIa >= 1, 'white dwarf >= 1.44 M☉ must trigger Type Ia supernova');
+  assert.ok(elasticAfter.bounces >= 1 && elasticAfter.bothAlive, 'elastic mode must bounce planets intact');
+  mark('phase3a-spin-breakup-lock-typeIa-elastic');
+
+  // 15. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
   await page.click('[data-tool="grab"]');
   const toolAfter = await page.evaluate(() => window.observatory.sandbox.tool);
   assert.equal(toolAfter, 'grab', 'grab tool button should switch mode');

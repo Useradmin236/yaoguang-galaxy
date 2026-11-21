@@ -6,8 +6,8 @@ export const SANDBOX_SCENARIOS = Object.freeze([
   id: 'default',
   name: '瑶光本系',
   icon: '✦',
-  badge: '标准',
-  summary: '瑶光主星 + 归墟暗伴体 + 六颗原始行星的实时 N-Body 演化'
+  badge: '稳态',
+  summary: '宽间距稳态双星构型 · 不干预可长期稳定运行，随时开启造物或高倍速演化'
  },
  {
   id: 'threebody',
@@ -78,16 +78,17 @@ export function computeEraTag(planetPos, aliveStars) {
 }
 
 export function applySandboxScenario(scenarioId, api) {
- // api provides: initBase(), hide(id), fling(id, pos, vel), setMass(id, m),
+ // api provides: initBase(spreadOverride), hide(id), fling(id, pos, vel), setMass(id, m),
  // setGravity(g), setBhMass(m), spawn(type, pos, vel, opts), follow(id),
  // select(id), cameraView(preset), banner(title, detail, badge)
  api.setGravity(1.0);
  api.setBhMass(12.4);
- api.initBase();
+ // Default stays calm & wide-spaced; action scenarios use compact 1.0x disk for crisp choreography
+ api.initBase(scenarioId === 'default' ? null : 1.0);
 
  if (scenarioId === 'default') {
   api.cameraView('overview');
-  api.banner('剧本 · 瑶光本系', '标准双星构型就绪 · 自由探索、造物发射或抓取制造灾变', 'info');
+  api.banner('剧本 · 瑶光稳态本系', '宽间距稳定双星构型就绪 · 可安心调速（0.05×～100×）、造物配月或调节物理法则', 'info');
   return;
  }
 
@@ -129,11 +130,11 @@ export function applySandboxScenario(scenarioId, api) {
 
  if (scenarioId === 'slingshot') {
   api.setBhMass(18.0);
-  api.fling('yaoguang', [16, 0, -18], [1.2, 0, 2.2]);
+  api.fling('yaoguang', [24, 0, -24], [1.2, 0, 2.2]);
   api.fling('guixu', [-24, 0, 10], [1.5, 0, -3.5]);
-  api.spawn('gas', [34, 0, 26], [-5.2, 0, -3.4], { mass: 1.15, radius: 4.1, name: '巨木借力星', silent: true });
+  api.spawn('gas', [52, 0, 34], [-4.8, 0, -3.2], { mass: 1.15, radius: 4.1, name: '巨木借力星', silent: true });
   // Pre-aimed slingshot probe poised to skim right past Guixu's photon sphere for >2x Δv!
-  const probe = api.spawn('probe', [6, 0.4, 42], [-10.2, 0, -9.8], { name: '远航号探测器', silent: true });
+  const probe = api.spawn('probe', [-2, 0.4, 30], [-10.8, 0, -10.2], { name: '远航号探测器', silent: true });
   if (probe) {
    api.select(probe.id);
    api.follow(probe.id);

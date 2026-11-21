@@ -21,6 +21,18 @@ float fbm3(vec3 p){
 
 export const SPAWN_CATALOG = Object.freeze([
  {
+  id: 'moon-ice',
+  label: '冰质卫星',
+  short: '冰月',
+  icon: '◦',
+  kind: 'moon',
+  isGasOrIce: true,
+  mass: 0.008,
+  radius: 1.05,
+  color: '#b8e2ff',
+  hint: '轻质冰岩卫星 · 贴着大行星单击即可自动捕获为卫星圆轨'
+ },
+ {
   id: 'rocky',
   label: '岩质行星',
   short: '岩星',
@@ -30,7 +42,7 @@ export const SPAWN_CATALOG = Object.freeze([
   mass: 0.14,
   radius: 2.35,
   color: '#c6936c',
-  hint: '类地岩质世界 · 可熔融合并或超高速粉碎'
+  hint: '类地岩质世界 · 可熔融合并、高速自转解体或超高速粉碎'
  },
  {
   id: 'gas',
@@ -42,7 +54,19 @@ export const SPAWN_CATALOG = Object.freeze([
   mass: 0.65,
   radius: 3.75,
   color: '#d8b288',
-  hint: '带光环的木星级巨行星 · 适合当引力弹弓借力点'
+  hint: '带光环的木星级巨行星 · 适合捕获卫星群或当弹弓借力点'
+ },
+ {
+  id: 'brown-dwarf',
+  label: '褐矮星',
+  short: '褐矮',
+  icon: '◐',
+  kind: 'planet',
+  isGasOrIce: true,
+  mass: 1.35,
+  radius: 4.15,
+  color: '#d46a8c',
+  hint: '次恒星暗红气态巨体 · 稍增质量（≥1.8 M☉）即可点燃成恒星'
  },
  {
   id: 'comet',
@@ -80,6 +104,17 @@ export const SPAWN_CATALOG = Object.freeze([
   radius: 5.9,
   color: '#ff8a54',
   hint: '膨胀红巨星 · 极易被黑洞撕扯出耀眼等离子火桥'
+ },
+ {
+  id: 'white-dwarf',
+  label: '白矮星',
+  short: '白矮',
+  icon: '✶',
+  kind: 'white-dwarf',
+  mass: 1.18,
+  radius: 1.45,
+  color: '#dff4ff',
+  hint: '致密简并白矮星 · 质量越过 1.44 M☉ 钱德拉塞卡极限即爆 Ia 型超新星'
  },
  {
   id: 'neutron',
@@ -160,6 +195,8 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
    uTime: { value: 0 },
    uHeat: { value: 0 },
    uTidal: { value: 0 },
+   uFrost: { value: 0 },
+   uSpinGlow: { value: 0 },
    uImpactDir: { value: new THREE.Vector3(1, 0, 0) },
    uIsGas: { value: isGasOrIce ? 1 : 0 },
    uHdr: hdrBoost
@@ -175,16 +212,16 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
      vLocal=normalize(position);
      vNormal=normalize(mat3(modelMatrix)*normal);
      vWorld=(modelMatrix*vec4(position,1.)).xyz;
-     gl_Position=projectionMatrix*modelViewMatrix*vec4(vWorld,1.);
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
     }`,
    fragmentShader: `
     precision highp float;
     varying vec3 vLocal,vNormal,vWorld;
-    uniform float uTime,uHeat,uTidal,uIsGas,uHdr;
+    uniform float uTime,uHeat,uTidal,uFrost,uSpinGlow,uIsGas,uHdr;
     uniform vec3 uImpactDir;
     ${NOISE_GLSL}
     void main(){
-     float energy=max(uHeat,uTidal);
+     float energy=max(max(uHeat,uTidal),max(uFrost*.65,uSpinGlow));
      if(energy<=.005)discard;
      vec3 p=normalize(vLocal);
      float n1=fbm3(p*3.8+vec3(0.,uTime*.08,0.));
@@ -197,12 +234,17 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
      vec3 V=normalize(cameraPosition-vWorld);
      float limb=pow(1.-abs(dot(normalize(vNormal),V)),2.4);
      float tidalMask=(cracks*.78+limb*.72)*uTidal;
-     float total=clamp(impactMask+tidalMask,0.,1.5);
-     vec3 lavaCol=mix(vec3(.92,.24,.04),vec3(1.,.74,.26),smoothstep(.15,.72,total));
-     lavaCol=mix(lavaCol,vec3(1.,.96,.88),smoothstep(.68,1.25,total));
-     vec3 gasCol=mix(vec3(.38,.78,1.),vec3(1.,.84,.58),smoothstep(.25,.95,total));
-     vec3 col=mix(lavaCol,gasCol,uIsGas*(uTidal/(energy+.001)))*mix(.92,1.45,uHdr);
-     gl_FragColor=vec4(col,clamp(total*.92,0.,1.));
+     float eqBand=exp(-pow(p.y*5.2,2.))*(.55+.45*r1)*uSpinGlow;
+     float frostMask=(limb*.82+pow(max(n1,0.),2.2)*.38)*uFrost;
+     float hotTotal=clamp(impactMask+tidalMask+eqBand*.95,0.,1.5);
+     vec3 lavaCol=mix(vec3(.92,.24,.04),vec3(1.,.74,.26),smoothstep(.15,.72,hotTotal));
+     lavaCol=mix(lavaCol,vec3(1.,.96,.88),smoothstep(.68,1.25,hotTotal));
+     vec3 gasCol=mix(vec3(.38,.78,1.),vec3(1.,.84,.58),smoothstep(.25,.95,hotTotal));
+     vec3 hotCol=mix(lavaCol,gasCol,uIsGas*(uTidal/(max(uHeat,uTidal)+.001)));
+     vec3 frostCol=vec3(.58,.86,1.);
+     vec3 col=(hotCol*hotTotal+frostCol*frostMask*.65)/(max(hotTotal+frostMask*.65,.001))*mix(.92,1.45,uHdr);
+     float alpha=clamp(hotTotal*.92+frostMask*.42,0.,1.);
+     gl_FragColor=vec4(col,alpha);
      #include <tonemapping_fragment>
      #include <colorspace_fragment>
     }`
@@ -275,8 +317,10 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
    crust,
    colorHex: pal.hex,
    update(age, entity) {
-    surface.rotation.y = age * 0.22;
-    surface.scale.setScalar(entity.radius);
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
+    surface.rotation.y = entity.spinAngle ?? age * 0.22;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
    },
    dispose() {
     mat.dispose();
@@ -390,7 +434,7 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
 
   const crust = makeCrustShell(true);
   crust.mesh.scale.setScalar(radius * 1.03);
-  root.add(crust.mesh);
+  tilt.add(crust.mesh);
 
   return {
    root,
@@ -399,12 +443,14 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
    crust,
    colorHex: pal.hex,
    update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
     uniforms.uTime.value = age;
-    surface.rotation.y = age * 0.28;
-    surface.scale.setScalar(entity.radius);
-    ring.scale.setScalar(entity.radius);
+    surface.rotation.y = entity.spinAngle ?? age * 0.28;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
+    ring.scale.setScalar(entity.radius * Math.max(1, ox * 0.94));
     ringMat.uniforms.uCenter.value.copy(entity.pos);
-    ringMat.uniforms.uRadius.value = entity.radius;
+    ringMat.uniforms.uRadius.value = entity.radius * ox;
    },
    dispose() {
     mat.dispose();
@@ -526,10 +572,12 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
    halo,
    colorHex: isRed ? '#ff8a54' : '#9ed2ff',
    update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
     uniforms.uTime.value = age;
     uniforms.uFlare.value = entity.flare || 0;
-    surface.rotation.y = age * 0.14;
-    surface.scale.setScalar(entity.radius);
+    surface.rotation.y = entity.spinAngle ?? age * 0.14;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
     halo.scale.setScalar(entity.radius * (4.2 + (entity.flare || 0) * 1.4));
    },
    dispose() {
@@ -629,10 +677,12 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
    surface,
    colorHex: '#a8d8ff',
    update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
     coreMat.uniforms.uTime.value = age;
     beamMat.uniforms.uTime.value = age;
-    spinGroup.rotation.y = age * 7.5 + seed;
-    surface.scale.setScalar(entity.radius);
+    spinGroup.rotation.y = (entity.spinAngle ?? age * 7.5) + seed;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
     halo.scale.setScalar(entity.radius * (6.8 + (entity.flare || 0) * 2.2));
    },
    dispose() {
@@ -839,8 +889,241 @@ export function createSandboxBodyFactory({ THREE, lightPosition, hdrBoost, LOOK 
   };
  }
 
+ function createIceMoonVisual(seed, radius) {
+  const root = new THREE.Group();
+  const uniforms = {
+   uSeed: { value: seed },
+   uLight: { value: lightPosition },
+   uHdr: hdrBoost
+  };
+  const mat = new THREE.ShaderMaterial({
+   uniforms,
+   vertexShader: `
+    varying vec3 vLocal,vNormal,vWorld;
+    void main(){
+     vLocal=position;
+     vNormal=normalize(mat3(modelMatrix)*normal);
+     vWorld=(modelMatrix*vec4(position,1.)).xyz;
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
+    }`,
+   fragmentShader: `
+    precision highp float;
+    varying vec3 vLocal,vNormal,vWorld;
+    uniform float uSeed,uHdr;
+    uniform vec3 uLight;
+    ${NOISE_GLSL}
+    void main(){
+     vec3 p=normalize(vLocal);
+     float n=fbm3(p*4.4+vec3(uSeed*1.1,uSeed*.5,uSeed*.8));
+     float ridge=1.-abs(noise3(p*11.+vec3(n*1.6,uSeed,0.))*2.-1.);
+     float cracks=pow(ridge,4.2);
+     vec3 ice=mix(vec3(.56,.72,.86),vec3(.92,.96,1.),smoothstep(.25,.78,n));
+     ice=mix(ice,vec3(.34,.58,.82),cracks*.62);
+     vec3 N=normalize(vNormal);
+     vec3 L=normalize(uLight-vWorld);
+     vec3 V=normalize(cameraPosition-vWorld);
+     float ndl=dot(N,L);
+     float day=smoothstep(-.15,.85,ndl);
+     float rim=pow(1.-max(dot(N,V),0.),2.8);
+     float spec=pow(max(dot(N,normalize(L+V)),0.),36.)*max(ndl,0.)*.42;
+     vec3 col=ice*(.14+.94*day)+vec3(.55,.84,1.)*rim*.36+vec3(.92,.97,1.)*spec;
+     col*=mix(.95,1.14,uHdr);
+     gl_FragColor=vec4(col,1.);
+     #include <tonemapping_fragment>
+     #include <colorspace_fragment>
+    }`
+  });
+  const surface = new THREE.Mesh(lowSphere, mat);
+  surface.scale.setScalar(radius);
+  root.add(surface);
+  const crust = makeCrustShell(true);
+  crust.mesh.scale.setScalar(radius * 1.04);
+  root.add(crust.mesh);
+
+  return {
+   root,
+   surface,
+   crust,
+   colorHex: '#b8e2ff',
+   update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
+    surface.rotation.y = entity.spinAngle ?? age * 0.25;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
+   },
+   dispose() {
+    mat.dispose();
+    crust.mesh.material.dispose();
+   }
+  };
+ }
+
+ function createBrownDwarfVisual(seed, radius) {
+  const root = new THREE.Group();
+  const uniforms = {
+   uSeed: { value: seed },
+   uTime: { value: 0 },
+   uLight: { value: lightPosition },
+   uHdr: hdrBoost
+  };
+  const mat = new THREE.ShaderMaterial({
+   uniforms,
+   vertexShader: `
+    varying vec3 vLocal,vNormal,vWorld;
+    void main(){
+     vLocal=position;
+     vNormal=normalize(mat3(modelMatrix)*normal);
+     vWorld=(modelMatrix*vec4(position,1.)).xyz;
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
+    }`,
+   fragmentShader: `
+    precision highp float;
+    varying vec3 vLocal,vNormal,vWorld;
+    uniform float uSeed,uTime,uHdr;
+    uniform vec3 uLight;
+    ${NOISE_GLSL}
+    void main(){
+     vec3 p=normalize(vLocal);
+     float swirl=fbm3(vec3(p.x*3.4+uTime*.08,p.y*10.5,p.z*3.4)+uSeed);
+     float lat=p.y*13.+swirl*2.8;
+     float band=sin(lat)*.5+.5;
+     float glowBand=smoothstep(.60,.96,cos(lat*1.4+swirl*3.2)*.5+.5);
+     vec3 darkCol=vec3(.24,.09,.16);
+     vec3 midCol=vec3(.62,.22,.32);
+     vec3 hotCol=vec3(1.,.50,.36);
+     vec3 base=mix(darkCol,midCol,band);
+     base=mix(base,hotCol,glowBand*.72);
+     vec3 N=normalize(vNormal);
+     vec3 L=normalize(uLight-vWorld);
+     vec3 V=normalize(cameraPosition-vWorld);
+     float day=smoothstep(-.2,.85,dot(N,L));
+     float rim=pow(1.-max(dot(N,V),0.),2.6);
+     vec3 col=base*(.48+.62*day)+hotCol*glowBand*.35+vec3(.96,.42,.56)*rim*.52;
+     col*=mix(.96,1.22,uHdr);
+     gl_FragColor=vec4(col,1.);
+     #include <tonemapping_fragment>
+     #include <colorspace_fragment>
+    }`
+  });
+  const surface = new THREE.Mesh(sharedSphere, mat);
+  surface.scale.setScalar(radius);
+  root.add(surface);
+
+  const haloMat = new THREE.SpriteMaterial({
+   map: glowMap,
+   color: 0xd84c74,
+   transparent: true,
+   opacity: 0.42,
+   depthWrite: false,
+   blending: THREE.AdditiveBlending
+  });
+  const halo = new THREE.Sprite(haloMat);
+  halo.scale.setScalar(radius * 3.4);
+  root.add(halo);
+
+  const crust = makeCrustShell(true);
+  crust.mesh.scale.setScalar(radius * 1.03);
+  root.add(crust.mesh);
+
+  return {
+   root,
+   surface,
+   crust,
+   colorHex: '#d46a8c',
+   update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
+    uniforms.uTime.value = age;
+    surface.rotation.y = entity.spinAngle ?? age * 0.4;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
+    halo.scale.setScalar(entity.radius * (3.3 + (entity.flare || 0) * 1.1));
+   },
+   dispose() {
+    mat.dispose();
+    haloMat.dispose();
+    crust.mesh.material.dispose();
+   }
+  };
+ }
+
+ function createWhiteDwarfVisual(seed, radius) {
+  const root = new THREE.Group();
+  const uniforms = {
+   uTime: { value: 0 },
+   uSeed: { value: seed },
+   uFlare: { value: 0 },
+   uHdr: hdrBoost
+  };
+  const mat = new THREE.ShaderMaterial({
+   uniforms,
+   vertexShader: `
+    varying vec3 vLocal,vNormal,vWorld;
+    void main(){
+     vLocal=position;
+     vNormal=normalize(mat3(modelMatrix)*normal);
+     vWorld=(modelMatrix*vec4(position,1.)).xyz;
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
+    }`,
+   fragmentShader: `
+    precision highp float;
+    varying vec3 vLocal,vNormal,vWorld;
+    uniform float uTime,uSeed,uFlare,uHdr;
+    ${NOISE_GLSL}
+    void main(){
+     vec3 p=normalize(vLocal);
+     float n=fbm3(p*7.5+vec3(uTime*.35,uSeed,-uTime*.28));
+     vec3 V=normalize(cameraPosition-vWorld);
+     float ndv=max(dot(normalize(vNormal),V),0.);
+     vec3 col=mix(vec3(.62,.86,1.),vec3(.98,.99,1.),pow(ndv,.45)*.75+n*.25);
+     col+=vec3(.78,.94,1.)*(1.-ndv)*.45;
+     col*=mix(1.12,1.62,uHdr)*(1.+uFlare*.55);
+     gl_FragColor=vec4(col,1.);
+     #include <tonemapping_fragment>
+     #include <colorspace_fragment>
+    }`
+  });
+  const surface = new THREE.Mesh(lowSphere, mat);
+  surface.scale.setScalar(radius);
+  root.add(surface);
+
+  const haloMat = new THREE.SpriteMaterial({
+   map: glowMap,
+   color: 0xc2ecff,
+   transparent: true,
+   opacity: 0.92,
+   depthWrite: false,
+   blending: THREE.AdditiveBlending
+  });
+  const halo = new THREE.Sprite(haloMat);
+  halo.scale.setScalar(radius * 6.8);
+  root.add(halo);
+
+  return {
+   root,
+   surface,
+   halo,
+   colorHex: '#dff4ff',
+   update(age, entity) {
+    const ox = entity.oblateXZ || 1;
+    const oy = entity.oblateY || 1;
+    uniforms.uTime.value = age;
+    uniforms.uFlare.value = entity.flare || 0;
+    surface.rotation.y = entity.spinAngle ?? age * 0.9;
+    surface.scale.set(entity.radius * ox, entity.radius * oy, entity.radius * ox);
+    halo.scale.setScalar(entity.radius * (6.6 + (entity.flare || 0) * 2.2));
+   },
+   dispose() {
+    mat.dispose();
+    haloMat.dispose();
+   }
+  };
+ }
+
  function createVisual(typeId, seed, radius) {
   switch (typeId) {
+   case 'moon-ice': return createIceMoonVisual(seed, radius);
+   case 'brown-dwarf': return createBrownDwarfVisual(seed, radius);
+   case 'white-dwarf': return createWhiteDwarfVisual(seed, radius);
    case 'gas': return createGasVisual(seed, radius);
    case 'comet': return createCometVisual(seed, radius);
    case 'star-blue': return createStarVisual('blue', seed, radius);

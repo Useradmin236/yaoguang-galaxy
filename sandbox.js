@@ -34,23 +34,54 @@ float fbm3(vec3 p){
 `;
 
 const PLANET_MASSES = Object.freeze({
- jixi: 0.065,
- mingai: 0.34,
- lingxi: 0.145,
- suxian: 0.42,
- xunqi: 0.125,
- qitang: 0.165
+ jixi: 0.038,
+ mingai: 0.11,
+ lingxi: 0.068,
+ suxian: 0.145,
+ xunqi: 0.058,
+ qitang: 0.074
 });
 
 const MU_STAR_BASE = 920;
 const STAR_MASS = 6.1;
 const STAR_RADIUS = 5.1;
+const DEFAULT_ORBIT_SPREAD = 2.0;
 const MAX_DEBRIS = 4200;
 const TRAIL_LEN = 110;
 const MAX_SHOCKS = 20;
 const PREVIEW_STEPS = 72;
-const MAX_ALIVE_BODIES = 44;
-const ARENA_LIMIT = 340;
+const MAX_ALIVE_BODIES = 48;
+const ARENA_LIMIT = 680;
+
+function isLightKind(kind) {
+ return kind === 'planet' || kind === 'moon' || kind === 'comet' || kind === 'probe';
+}
+function isCompactKind(kind) {
+ return kind === 'bh' || kind === 'neutron' || kind === 'white-dwarf';
+}
+function isGravitatingKind(kind) {
+ return kind === 'bh' || kind === 'star' || kind === 'neutron' || kind === 'white-dwarf' || kind === 'planet';
+}
+function speedToSlider(speed) {
+ if (speed <= 0) return 0;
+ const clamped = Math.max(0.05, Math.min(100, speed));
+ return (Math.log(clamped / 0.05) / Math.log(2000)) * 100;
+}
+function sliderToSpeed(val) {
+ const v = Math.max(0, Math.min(100, Number(val) || 0));
+ const raw = 0.05 * Math.pow(2000, v / 100);
+ if (raw < 0.2) return +raw.toFixed(2);
+ if (raw < 2) return +raw.toFixed(2);
+ if (raw < 10) return +raw.toFixed(1);
+ return Math.round(raw);
+}
+function formatSpeedMult(spd) {
+ if (spd <= 0) return '暂停';
+ if (spd < 0.2) return `${spd.toFixed(2)}×`;
+ if (spd < 2) return `${Number(spd.toFixed(2))}×`;
+ if (spd < 10) return `${spd.toFixed(1)}×`;
+ return `${Math.round(spd)}×`;
+}
 
 function makeRand(seed) {
  let s = seed | 0;
@@ -98,9 +129,12 @@ function lookTone(LOOK) {
 function kindLabel(e) {
  if (e.kind === 'bh') return '克尔黑洞';
  if (e.kind === 'star') return e.subType === 'star-red' ? '红巨星' : '主序蓝星';
+ if (e.kind === 'white-dwarf') return '致密白矮星';
  if (e.kind === 'neutron') return '磁化脉冲星';
  if (e.kind === 'probe') return '弹弓探测器';
+ if (e.kind === 'moon') return '冰质卫星';
  if (e.kind === 'comet') return '冰核彗星';
+ if (e.subType === 'brown-dwarf') return '暗红褐矮星';
  return e.isGasOrIce ? '气态巨行星' : '岩质行星';
 }
 
@@ -147,16 +181,26 @@ export function createCosmicSandbox({
  // Configuration state
  const config = {
   tool: 'orbit', // 'orbit' | 'spawn' | 'grab'
-  spawnType: 'star-blue',
+  spawnType: 'moon-ice',
+  spawnMode: 'orbit', // 'stationary' | 'orbit' | 'slingshot'
+  spawnRetrograde: false,
   spawnY: 0,
   scenario: 'default',
   showScenarios: false,
+  showLaws: false,
   timeScale: 1,
   bhMass: baseBhMass,
   gravityScale: 1,
+  planetGravityBoost: 3.0,
+  orbitSpread: DEFAULT_ORBIT_SPREAD,
+  drag: 0,
+  collisionMode: 'realistic', // 'realistic' | 'accrete' | 'elastic'
+  allowBreakup: true,
   overlays: false,
   autoBulletTime: true
  };
+
+ let savedSnapshot = null;
 
  const unlockedEggs = new Set();
  let voidPrompted = false;
@@ -224,7 +268,7 @@ export function createCosmicSandbox({
   uAccent: { value: new THREE.Vector3(...tone.accent) },
   uHdr: hdrBoost
  };
- const gridGeo = new THREE.PlaneGeometry(460, 460, 132, 132);
+ const gridGeo = new THREE.PlaneGeometry(760, 760, 148, 148);
  gridGeo.rotateX(-Math.PI / 2);
  const gridMat = new THREE.ShaderMaterial({
   uniforms: gridUniforms,
@@ -249,14 +293,14 @@ export function createCosmicSandbox({
      float d=length(pos.xz-uWells[i].xz);
      minD=min(minD,d);
      float mScale=clamp(m/12.4,.22,4.5);
-     float w=1./(1.+pow(d/(12.8*pow(mScale,.34)),2.));
-     drop+=w*(7.8+6.2*pow(mScale,.45));
+     float w=1./(1.+pow(d/(14.2*pow(mScale,.34)),2.));
+     drop+=w*(8.2+6.4*pow(mScale,.45));
      maxW=max(maxW,w*clamp(m/10.,.35,1.25));
     }
     float gwD=length(pos.xz-uGwOrigin.xz);
-    float gwEnv=exp(-pow((gwD-uGwRadius)/16.,2.))*uGwAmp;
-    float gwOsc=sin((gwD-uGwRadius)*.36)*gwEnv;
-    pos.y+=(-min(drop,34.)+gwOsc*4.8)*uStrength;
+    float gwEnv=exp(-pow((gwD-uGwRadius)/18.,2.))*uGwAmp;
+    float gwOsc=sin((gwD-uGwRadius)*.34)*gwEnv;
+    pos.y+=(-min(drop,36.)+gwOsc*5.0)*uStrength;
     vXZ=pos.xz;vMaxWell=clamp(maxW,0.,1.25);vMinDist=minD;vGwGlow=gwEnv;
     gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.);
    }`,
@@ -267,14 +311,14 @@ export function createCosmicSandbox({
    uniform float uStrength,uHdr;
    uniform vec3 uColor,uAccent;
    void main(){
-    float radialFade=1.-smoothstep(155.,225.,length(vXZ));
+    float radialFade=1.-smoothstep(255.,375.,length(vXZ));
     if(radialFade<=.002)discard;
-    vec2 coord=vXZ/14.;
+    vec2 coord=vXZ/18.;
     vec2 fw=max(fwidth(coord),vec2(.001));
     vec2 g=abs(fract(coord-.5)-.5)/(fw*.9);
     float line=1.-min(min(g.x,g.y),1.);
     float clearCore=smoothstep(3.8,9.8,vMinDist);
-    float vis=(.034+vMaxWell*.26+vGwGlow*.48)*radialFade*uStrength*clearCore;
+    float vis=(.036+vMaxWell*.26+vGwGlow*.48)*radialFade*uStrength*clearCore;
     vec3 col=mix(uColor,uAccent,clamp(vMaxWell*.78,0.,1.));
     col=mix(col,vec3(.88,.76,1.),clamp(vGwGlow*.85,0.,1.))*mix(.88,1.18,uHdr);
     gl_FragColor=vec4(col,clamp(line*vis,0.,1.));
@@ -574,6 +618,8 @@ export function createCosmicSandbox({
    uTime: { value: 0 },
    uHeat: { value: 0 },
    uTidal: { value: 0 },
+   uFrost: { value: 0 },
+   uSpinGlow: { value: 0 },
    uImpactDir: { value: new THREE.Vector3(1, 0, 0) },
    uIsGas: { value: isGasOrIce ? 1 : 0 },
    uHdr: hdrBoost
@@ -589,16 +635,16 @@ export function createCosmicSandbox({
      vLocal=normalize(position);
      vNormal=normalize(mat3(modelMatrix)*normal);
      vWorld=(modelMatrix*vec4(position,1.)).xyz;
-     gl_Position=projectionMatrix*modelViewMatrix*vec4(vWorld,1.);
+     gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
     }`,
    fragmentShader: `
     precision highp float;
     varying vec3 vLocal,vNormal,vWorld;
-    uniform float uTime,uHeat,uTidal,uIsGas,uHdr;
+    uniform float uTime,uHeat,uTidal,uFrost,uSpinGlow,uIsGas,uHdr;
     uniform vec3 uImpactDir;
     ${NOISE_GLSL}
     void main(){
-     float energy=max(uHeat,uTidal);
+     float energy=max(max(uHeat,uTidal),max(uFrost*.65,uSpinGlow));
      if(energy<=.005)discard;
      vec3 p=normalize(vLocal);
      float n1=fbm3(p*3.8+vec3(0.,uTime*.08,0.));
@@ -611,12 +657,17 @@ export function createCosmicSandbox({
      vec3 V=normalize(cameraPosition-vWorld);
      float limb=pow(1.-abs(dot(normalize(vNormal),V)),2.4);
      float tidalMask=(cracks*.78+limb*.72)*uTidal;
-     float total=clamp(impactMask+tidalMask,0.,1.5);
-     vec3 lavaCol=mix(vec3(.92,.24,.04),vec3(1.,.74,.26),smoothstep(.15,.72,total));
-     lavaCol=mix(lavaCol,vec3(1.,.96,.88),smoothstep(.68,1.25,total));
-     vec3 gasCol=mix(vec3(.38,.78,1.),vec3(1.,.84,.58),smoothstep(.25,.95,total));
-     vec3 col=mix(lavaCol,gasCol,uIsGas*(uTidal/(energy+.001)))*mix(.92,1.48,uHdr);
-     gl_FragColor=vec4(col,clamp(total*.92,0.,1.));
+     float eqBand=exp(-pow(p.y*5.2,2.))*(.55+.45*r1)*uSpinGlow;
+     float frostMask=(limb*.82+pow(max(n1,0.),2.2)*.38)*uFrost;
+     float hotTotal=clamp(impactMask+tidalMask+eqBand*.95,0.,1.5);
+     vec3 lavaCol=mix(vec3(.92,.24,.04),vec3(1.,.74,.26),smoothstep(.15,.72,hotTotal));
+     lavaCol=mix(lavaCol,vec3(1.,.96,.88),smoothstep(.68,1.25,hotTotal));
+     vec3 gasCol=mix(vec3(.38,.78,1.),vec3(1.,.84,.58),smoothstep(.25,.95,hotTotal));
+     vec3 hotCol=mix(lavaCol,gasCol,uIsGas*(uTidal/(max(uHeat,uTidal)+.001)));
+     vec3 frostCol=vec3(.58,.86,1.);
+     vec3 col=(hotCol*hotTotal+frostCol*frostMask*.65)/(max(hotTotal+frostMask*.65,.001))*mix(.92,1.48,uHdr);
+     float alpha=clamp(hotTotal*.92+frostMask*.42,0.,1.);
+     gl_FragColor=vec4(col,alpha);
      #include <tonemapping_fragment>
      #include <colorspace_fragment>
     }`
@@ -656,7 +707,7 @@ export function createCosmicSandbox({
  const planetVisuals = bodies.map(b => {
   const isGas = b.def.kind === 1 || b.def.kind === 4;
   const crust = createCrustShell(isGas);
-  b.root.add(crust.mesh);
+  (b.tilt || b.root).add(crust.mesh);
   const trail = createTrailLine(b.def.color || '#9ec6e4', root);
   return { body: b, crust, trail, history: [], baseRadius: b.def.radius };
  });
@@ -810,16 +861,119 @@ export function createCosmicSandbox({
   shatters: 0,
   vaporized: 0,
   supernovae: 0,
+  typeIaSupernovae: 0,
   starMergers: 0,
   bhMergers: 0,
   kilonovae: 0,
   collapses: 0,
   slingshots: 0,
   bigBangs: 0,
+  spinBreakups: 0,
+  elasticBounces: 0,
   spawned: 0,
   lastEvent: '',
   lastEnergy1e32J: 0
  };
+
+ function escapeVelocityFor(e) {
+  if (!e) return 0;
+  const G = Math.abs(gUnit());
+  return Math.sqrt((2 * G * Math.max(e.mass, 1e-4)) / Math.max(e.radius, 0.25));
+ }
+
+ function criticalSpinFor(e) {
+  if (!e || e.kind === 'bh' || e.kind === 'probe') return Infinity;
+  const G = Math.abs(gUnit());
+  const r = Math.max(e.radius, 0.45);
+  const base = Math.sqrt((G * Math.max(e.mass, 0.002)) / (r * r * r));
+  if (e.kind === 'neutron') return Math.max(18, base * 1.4);
+  if (e.kind === 'white-dwarf') return base * 1.35;
+  return Math.max(0.25, base);
+ }
+
+ function defaultSpinFor(kind, subType) {
+  if (kind === 'bh' || kind === 'probe') return 0;
+  if (kind === 'neutron') return 3.6;
+  if (kind === 'white-dwarf') return 0.9;
+  if (kind === 'star') return 0.14;
+  if (kind === 'moon') return 0.18;
+  if (kind === 'comet') return 0.26;
+  if (subType === 'brown-dwarf') return 0.42;
+  if (subType === 'gas') return 0.36;
+  return 0.22;
+ }
+
+ function equilibriumTempAt(pos, exclude = null) {
+  if (!sim) return 260;
+  let flux = 0;
+  for (const st of sim.entities) {
+   if (!st.alive || st === exclude) continue;
+   if (st.kind !== 'star' && st.kind !== 'white-dwarf') continue;
+   const d = Math.max(pos.distanceTo(st.pos), st.radius + 2.5);
+   const lum = st.kind === 'white-dwarf' ? 0.35 : (st.mass / STAR_MASS);
+   flux += lum * (3400 / (d * d));
+  }
+  if (flux <= 1e-4) return 45;
+  return THREE.MathUtils.clamp(Math.round(285 * Math.pow(flux, 0.25)), 40, 4200);
+ }
+
+ function pairGravityMult(kindA, kindB) {
+  return (isLightKind(kindA) && isLightKind(kindB)) ? config.planetGravityBoost : 1.0;
+ }
+
+ // Exact continuous closest approach between moving segments a0->a1 and b0->b1
+ function segmentMinDistSq(a0, a1, b0, b1) {
+  const rx = a0.x - b0.x, ry = a0.y - b0.y, rz = a0.z - b0.z;
+  const vx = (a1.x - a0.x) - (b1.x - b0.x);
+  const vy = (a1.y - a0.y) - (b1.y - b0.y);
+  const vz = (a1.z - a0.z) - (b1.z - b0.z);
+  const vv = vx * vx + vy * vy + vz * vz;
+  let t = 0;
+  if (vv > 1e-9) {
+   t = -(rx * vx + ry * vy + rz * vz) / vv;
+   if (t < 0) t = 0;
+   else if (t > 1) t = 1;
+  }
+  const dx = rx + vx * t, dy = ry + vy * t, dz = rz + vz * t;
+  return { d2: dx * dx + dy * dy + dz * dz, t };
+ }
+
+ function computeOrbitTelemetry(e) {
+  if (!sim || !e || !e.alive) return null;
+  if (e.pinned) {
+   return { attr: null, speed: 0, vCirc: 0, vEscAttr: 0, ecc: 0, hillR: 0, rocheMargin: 100, label: '📌 空间锚定' };
+  }
+  const attr = dominantAttractorNear(e.pos, e, e.kind);
+  const speed = e.vel.length();
+  if (!attr) {
+   return { attr: null, speed, vCirc: 0, vEscAttr: 0, ecc: 0, hillR: 0, rocheMargin: 100, label: speed < 0.25 ? '静止' : '自由漂流' };
+  }
+  const G = Math.abs(gUnit()) * pairGravityMult(e.kind, attr.kind);
+  const mu = Math.max(G * (attr.mass + e.mass), 1e-4);
+  const relPos = e.pos.clone().sub(attr.pos);
+  const relVel = e.vel.clone().sub(attr.vel);
+  const r = Math.max(relPos.length(), 1);
+  const v2 = relVel.lengthSq();
+  const vRel = Math.sqrt(v2);
+  const vCirc = Math.sqrt(mu / r);
+  const vEscAttr = Math.sqrt((2 * mu) / r);
+  const hVec = relPos.clone().cross(relVel);
+  const specE = 0.5 * v2 - mu / r;
+  const eccSq = Math.max(0, 1 + (2 * specE * hVec.lengthSq()) / (mu * mu));
+  const ecc = Math.min(9.9, Math.sqrt(eccSq));
+  const hillR = r * Math.cbrt((e.mass * config.planetGravityBoost) / Math.max(3 * attr.mass, 0.03));
+  let rocheR = 0;
+  if (attr.kind === 'bh') rocheR = rocheRadiusFor(e.radius, attr.mass, attr.radius);
+  else if (attr.kind === 'neutron') rocheR = Math.max(7.2, attr.radius * 4.5 + e.radius);
+  const rocheMargin = rocheR > 0 ? Math.max(0, Math.round(((r - rocheR) / rocheR) * 100)) : 999;
+
+  let label = '椭圆轨道';
+  if (speed < 0.22 && vRel < 0.28) label = '静止';
+  else if (ecc >= 0.99 || vRel >= vEscAttr * 0.99) label = '双曲线逃逸';
+  else if (ecc <= 0.14) label = '近圆轨道';
+  else if (ecc >= 0.65) label = '高偏心椭圆';
+  return { attr, speed, vRel, vCirc, vEscAttr, ecc, hillR, rocheMargin, label };
+ }
 
  function unlockEgg(id, customDetail = null, action = null) {
   const def = SANDBOX_EGGS.find(x => x.id === id);
@@ -953,15 +1107,19 @@ export function createCosmicSandbox({
   }
  }
 
- function dominantAttractorNear(pos, exclude = null) {
+ function dominantAttractorNear(pos, exclude = null, subjectKind = 'planet') {
   if (!sim) return null;
   let best = null;
   let bestPull = -1;
   for (const e of sim.entities) {
    if (!e.alive || e === exclude) continue;
-   if (e.kind !== 'bh' && e.kind !== 'star' && e.kind !== 'neutron') continue;
-   const d = Math.max(pos.distanceTo(e.pos), 6);
-   const pull = e.mass / (d * d);
+   if (!isGravitatingKind(e.kind)) continue;
+   if (e.kind === 'planet' && e.mass < 0.03) continue;
+   // Heavy stellar/compact subjects only lock onto heavy bodies unless none exist
+   if (!isLightKind(subjectKind) && e.kind === 'planet') continue;
+   const d = Math.max(pos.distanceTo(e.pos), e.radius + 1.5);
+   const mult = pairGravityMult(subjectKind, e.kind);
+   const pull = (e.mass * mult) / (d * d);
    if (pull > bestPull) {
     bestPull = pull;
     best = e;
@@ -970,14 +1128,15 @@ export function createCosmicSandbox({
   return best;
  }
 
- function circularVelocityAround(pos, attractor) {
+ function circularVelocityAround(pos, attractor, subjectKind = 'planet', retrograde = false) {
   if (!attractor) return new THREE.Vector3();
-  const G = Math.abs(gUnit());
+  const G = Math.abs(gUnit()) * pairGravityMult(subjectKind, attractor.kind);
   const rel = pos.clone().sub(attractor.pos);
-  const r = Math.max(rel.length(), attractor.radius * 2.2 + 4);
+  const r = Math.max(rel.length(), attractor.radius * 1.85 + 2.2);
   const tang = new THREE.Vector3(-rel.z, 0, rel.x);
   if (tang.lengthSq() < 1e-4) tang.set(1, 0, 0);
   else tang.normalize();
+  if (retrograde) tang.negate();
   const vMag = Math.sqrt((G * attractor.mass) / r);
   return tang.multiplyScalar(vMag).add(attractor.vel);
  }
@@ -1012,13 +1171,17 @@ export function createCosmicSandbox({
   let vel;
   if (velVec) {
    vel = velVec.clone();
+  } else if (opts.stationary) {
+   vel = new THREE.Vector3(0, 0, 0);
   } else {
-   const attr = dominantAttractorNear(posVec);
-   vel = circularVelocityAround(posVec, attr);
+   const attr = dominantAttractorNear(posVec, null, def.kind);
+   vel = circularVelocityAround(posVec, attr, def.kind, !!opts.retrograde);
   }
 
   const colorHex = opts.colorHex || dynVisual.colorHex || def.color;
   const trail = createTrailLine(colorHex, dynamicGroup);
+  const initSpin = opts.spinRate ?? defaultSpinFor(def.kind, def.id);
+  const initTemp = opts.temperature ?? (def.id === 'brown-dwarf' ? 1280 : isLightKind(def.kind) ? equilibriumTempAt(posVec) : 6000);
   const entity = {
    id: opts.id || `dyn-${def.id}-${spawnCounter}`,
    name: nextNameFor(def, opts.name),
@@ -1032,6 +1195,7 @@ export function createCosmicSandbox({
    targetRadius: radius,
    mass,
    pos: posVec.clone(),
+   prevPos: posVec.clone(),
    vel,
    acc: new THREE.Vector3(),
    accNext: new THREE.Vector3(),
@@ -1042,6 +1206,15 @@ export function createCosmicSandbox({
    tidalDamage: 0,
    lavaHeat: 0,
    flare: opts.initialFlare || 0,
+   spinRate: initSpin,
+   spinAngle: rand() * Math.PI * 2,
+   spinDamage: 0,
+   oblateXZ: 1,
+   oblateY: 1,
+   temperature: initTemp,
+   tempHold: 0,
+   noBreakup: !!opts.noBreakup,
+   pinned: !!opts.pinned,
    impactDir: new THREE.Vector3(1, 0, 0),
    trailFade: 1,
    dynVisual,
@@ -1055,7 +1228,7 @@ export function createCosmicSandbox({
   };
   entity.labelEl = createDynamicLabel(entity);
   sim.entities.push(entity);
-  if (entity.kind === 'planet' || entity.kind === 'comet') sim.planets.push(entity);
+  if (entity.kind === 'planet' || entity.kind === 'moon' || entity.kind === 'comet') sim.planets.push(entity);
   stats.spawned++;
   computeAccelerations(sim.entities, true);
   return entity;
@@ -1078,14 +1251,19 @@ export function createCosmicSandbox({
     const ang = (i / n) * Math.PI * 2 + rand() * 0.5;
     const rad = i === 0 ? 0 : 2.6 + rand() * 3.8;
     const p = basePos.clone().add(new THREE.Vector3(Math.cos(ang) * rad, (rand() - 0.5) * 1.8, Math.sin(ang) * rad));
-    let v = baseVel ? baseVel.clone() : circularVelocityAround(p, dominantAttractorNear(p));
-    v.x += (rand() - 0.5) * 2.2;
-    v.y += (rand() - 0.5) * 0.8;
-    v.z += (rand() - 0.5) * 2.2;
+    let v;
+    if (baseVel) v = baseVel.clone();
+    else if (opts.stationary) v = new THREE.Vector3(0, 0, 0);
+    else v = circularVelocityAround(p, dominantAttractorNear(p, null, def.kind), def.kind, !!opts.retrograde);
+    if (!opts.stationary) {
+     v.x += (rand() - 0.5) * 2.2;
+     v.y += (rand() - 0.5) * 0.8;
+     v.z += (rand() - 0.5) * 2.2;
+    }
     spawned.push(spawnSingleEntity(def.id, p, v, { ...opts, single: true }));
    }
    if (!opts.silent) {
-    showBanner('投放彗星簇', `5 颗冰核彗星已进入轨道`, 'info');
+    showBanner('投放彗星簇', opts.stationary ? '5 颗冰核彗星已静止放置' : '5 颗冰核彗星已进入轨道', 'info');
    }
    updateDockUI();
    return spawned[0];
@@ -1093,13 +1271,14 @@ export function createCosmicSandbox({
 
   const ent = spawnSingleEntity(def.id, basePos, baseVel, opts);
   if (ent && !opts.silent) {
-   showBanner(`已创建 · ${ent.name}`, `${kindLabel(ent)}加入 N-Body 引力场`, 'info');
+   const spdNote = ent.vel.length() < 0.05 ? '静止放置 (0 km/s)' : `初速 ${(ent.vel.length() * 6.5).toFixed(0)} km/s`;
+   showBanner(`已创建 · ${ent.name}`, `${kindLabel(ent)} · ${spdNote}`, 'info');
   }
   updateDockUI();
   return ent;
  }
 
- function initSimulation(hostSimTime = lastSimTimeFromHost) {
+ function initSimulation(hostSimTime = lastSimTimeFromHost, spreadOverride = null) {
   clearDynamicEntities();
   clearDebris();
   for (const s of shocks) {
@@ -1117,11 +1296,14 @@ export function createCosmicSandbox({
   stats.shatters = 0;
   stats.vaporized = 0;
   stats.supernovae = 0;
+  stats.typeIaSupernovae = 0;
   stats.starMergers = 0;
   stats.bhMergers = 0;
   stats.kilonovae = 0;
   stats.collapses = 0;
   stats.slingshots = 0;
+  stats.spinBreakups = 0;
+  stats.elasticBounces = 0;
   stats.spawned = 0;
   stats.lastEvent = '';
   stats.lastEnergy1e32J = 0;
@@ -1138,6 +1320,7 @@ export function createCosmicSandbox({
   simTime = 0;
   simAge = 0;
 
+  const spread = spreadOverride ?? config.orbitSpread;
   const G = Math.abs(gUnit());
   const bhMass = config.bhMass;
   const bhScale = bhVisualScale(bhMass);
@@ -1148,11 +1331,15 @@ export function createCosmicSandbox({
   if (halo) halo.visible = true;
   if (blackHole) blackHole.root.visible = true;
 
-  const bhPos = new THREE.Vector3(-64, 4.2, 22);
+  // Wide calm binary placement so all 6 planets sit strictly inside Alkaid's Hill sphere
+  const baseBhDir = new THREE.Vector3(-64, 4.2, 22).normalize();
+  const bhDist = spread >= 1.35 ? Math.max(210, 145 * spread) : 67.8 * Math.max(0.85, spread);
+  const bhPos = baseBhDir.multiplyScalar(bhDist);
   const starPos = new THREE.Vector3(0, 0, 0);
   const sep = bhPos.length();
   const totalBinMass = STAR_MASS + bhMass;
-  const vBin = Math.sqrt((G * totalBinMass) / sep) * 0.62;
+  const binEccFactor = spread >= 1.35 ? 0.98 : 0.68;
+  const vBin = Math.sqrt((G * totalBinMass) / sep) * binEccFactor;
   const tangBH = new THREE.Vector3(-bhPos.z / sep, 0, bhPos.x / sep);
 
   const bhVel = tangBH.clone().multiplyScalar(vBin * (STAR_MASS / totalBinMass));
@@ -1170,6 +1357,7 @@ export function createCosmicSandbox({
    radius: STAR_RADIUS,
    targetRadius: STAR_RADIUS,
    pos: starPos,
+   prevPos: starPos.clone(),
    vel: starVel,
    acc: new THREE.Vector3(),
    accNext: new THREE.Vector3(),
@@ -1178,6 +1366,15 @@ export function createCosmicSandbox({
    tidalStress: 0,
    tidalDamage: 0,
    flare: 0,
+   spinRate: 0.14,
+   spinAngle: 0,
+   spinDamage: 0,
+   oblateXZ: 1,
+   oblateY: 1,
+   temperature: 15500,
+   tempHold: 0,
+   noBreakup: false,
+   pinned: false,
    baseSpeed: starVel.length(),
    peakSpeed: starVel.length(),
    slingshotFlash: 0,
@@ -1196,12 +1393,22 @@ export function createCosmicSandbox({
    radius: bhR,
    targetRadius: bhR,
    pos: bhPos,
+   prevPos: bhPos.clone(),
    vel: bhVel,
    acc: new THREE.Vector3(),
    accNext: new THREE.Vector3(),
    alive: true,
    status: 'intact',
    flare: 0,
+   spinRate: 0,
+   spinAngle: 0,
+   spinDamage: 0,
+   oblateXZ: 1,
+   oblateY: 1,
+   temperature: 0,
+   tempHold: 0,
+   noBreakup: true,
+   pinned: false,
    baseSpeed: bhVel.length(),
    peakSpeed: bhVel.length(),
    slingshotFlash: 0,
@@ -1212,7 +1419,8 @@ export function createCosmicSandbox({
    const b = pv.body;
    const d = b.def;
    const a = d.phase + (hostSimTime / d.period) * Math.PI * 2;
-   const pos = new THREE.Vector3(Math.cos(a) * d.orbit, 0, Math.sin(a) * d.orbit);
+   const orbR = d.orbit * spread;
+   const pos = new THREE.Vector3(Math.cos(a) * orbR, 0, Math.sin(a) * orbR);
    const r = Math.max(pos.length(), 7);
    const tang = new THREE.Vector3(-pos.z / r, 0, pos.x / r);
    const vOrb = Math.sqrt((G * STAR_MASS) / r);
@@ -1224,7 +1432,10 @@ export function createCosmicSandbox({
    b.root.quaternion.identity();
    b.surface.scale.setScalar(pv.baseRadius);
    if (b.clouds) b.clouds.scale.setScalar(pv.baseRadius * 1.012);
-   if (b.atmosphere) b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
+   if (b.atmosphere) {
+    b.atmosphere.rotation.z = 0;
+    b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
+   }
    if (b.ring) {
     b.ring.visible = true;
     b.ring.scale.setScalar(1);
@@ -1237,27 +1448,32 @@ export function createCosmicSandbox({
    pv.crust.mesh.scale.setScalar(pv.baseRadius * 1.028);
    pv.crust.uniforms.uHeat.value = 0;
    pv.crust.uniforms.uTidal.value = 0;
+   pv.crust.uniforms.uFrost.value = 0;
+   pv.crust.uniforms.uSpinGlow.value = 0;
    pv.history = [pos.clone()];
    pv.trail.geometry.setDrawRange(0, 1);
    pv.trail.material.opacity = 0.68;
 
-   const mass = PLANET_MASSES[d.id] || 0.14;
+   const isGas = d.kind === 1 || d.kind === 4;
+   const mass = PLANET_MASSES[d.id] || 0.08;
+   const initT = THREE.MathUtils.clamp(Math.round(285 * Math.pow(3400 / Math.max(r * r, 25), 0.25)), 45, 2200);
    return {
     index: idx,
     id: d.id,
     name: d.name,
     kind: 'planet',
-    subType: d.kind === 1 || d.kind === 4 ? 'gas' : 'rocky',
+    subType: isGas ? 'gas' : 'rocky',
     isOriginal: true,
     visual: pv,
     body: b,
-    isGasOrIce: d.kind === 1 || d.kind === 4,
+    isGasOrIce: isGas,
     color: new THREE.Color(d.color || '#9ec6e4'),
     baseRadius: pv.baseRadius,
     radius: pv.baseRadius,
     targetRadius: pv.baseRadius,
     mass,
     pos,
+    prevPos: pos.clone(),
     vel,
     acc: new THREE.Vector3(),
     accNext: new THREE.Vector3(),
@@ -1267,6 +1483,15 @@ export function createCosmicSandbox({
     tidalStress: 0,
     tidalDamage: 0,
     lavaHeat: 0,
+    spinRate: isGas ? 0.34 : 0.20,
+    spinAngle: idx * 0.9,
+    spinDamage: 0,
+    oblateXZ: 1,
+    oblateY: 1,
+    temperature: initT,
+    tempHold: 0,
+    noBreakup: false,
+    pinned: false,
     impactDir: new THREE.Vector3(1, 0, 0),
     trailFade: 1,
     baseSpeed: vel.length(),
@@ -1279,9 +1504,13 @@ export function createCosmicSandbox({
   sim = {
    star: starEntity,
    bh: bhEntity,
+   starInitPos: starPos.clone(),
+   bhInitPos: bhPos.clone(),
+   spreadUsed: spread,
    planets,
    entities: [starEntity, bhEntity, ...planets],
    barycenter: new THREE.Vector3(),
+   baryVel: new THREE.Vector3(),
    barySpeed: 0
   };
 
@@ -1312,19 +1541,23 @@ export function createCosmicSandbox({
     const dz = b.pos.z - a.pos.z;
     const r2 = dx * dx + dy * dy + dz * dz;
 
-    const heavyPair = (a.kind === 'bh' || a.kind === 'star' || a.kind === 'neutron') ||
-     (b.kind === 'bh' || b.kind === 'star' || b.kind === 'neutron');
-    const soft = heavyPair ? (a.radius + b.radius) * 0.28 + 0.95 : (a.radius + b.radius) * 0.22 + 0.35;
+    const heavyPair = !isLightKind(a.kind) || !isLightKind(b.kind);
+    const soft = heavyPair ? (a.radius + b.radius) * 0.28 + 0.95 : (a.radius + b.radius) * 0.20 + 0.28;
     const denom = Math.pow(r2 + soft * soft, 1.5);
-    const inv = G / denom;
+    const pairG = G * pairGravityMult(a.kind, b.kind);
+    const inv = pairG / denom;
 
     const r = Math.sqrt(r2);
-    const cap = 105 / (r + 0.45);
+    const cap = 125 / (r + 0.42);
     const fA = Math.sign(inv) * Math.min(Math.abs(inv * b.mass), cap);
     const fB = Math.sign(inv) * Math.min(Math.abs(inv * a.mass), cap);
 
-    accA.x += dx * fA; accA.y += dy * fA; accA.z += dz * fA;
-    accB.x -= dx * fB; accB.y -= dy * fB; accB.z -= dz * fB;
+    if (!a.pinned) {
+     accA.x += dx * fA; accA.y += dy * fA; accA.z += dz * fA;
+    }
+    if (!b.pinned) {
+     accB.x -= dx * fB; accB.y -= dy * fB; accB.z -= dz * fB;
+    }
    }
   }
  }
@@ -1766,6 +1999,110 @@ export function createCosmicSandbox({
   announceEvent('潮汐撕裂 · TDE', `${p.name} 跨越 ${bh.name} 洛希极限，化作螺旋吸积流`, 'tde', energy);
  }
 
+ function handleElasticBounce(a, b, normal, dist) {
+  stats.elasticBounces++;
+  const minR = a.radius + b.radius;
+  const overlap = Math.max(0, minR - dist);
+  const invA = a.pinned ? 0 : 1 / Math.max(a.mass, 0.005);
+  const invB = b.pinned ? 0 : 1 / Math.max(b.mass, 0.005);
+  const invSum = invA + invB;
+  if (invSum > 0 && overlap > 0) {
+   const push = overlap * 1.04 / invSum;
+   if (!a.pinned) a.pos.addScaledVector(normal, -push * invA);
+   if (!b.pinned) b.pos.addScaledVector(normal, push * invB);
+  }
+  const relV = vB.copy(b.vel).sub(a.vel);
+  const velAlongN = relV.dot(normal);
+  if (velAlongN < 0 && invSum > 0) {
+   const restitution = 0.92;
+   const j = -(1 + restitution) * velAlongN / invSum;
+   if (!a.pinned) a.vel.addScaledVector(normal, -j * invA);
+   if (!b.pinned) b.vel.addScaledVector(normal, j * invB);
+  }
+  const hitPos = a.pos.clone().addScaledVector(normal, a.radius);
+  for (let i = 0; i < 65; i++) {
+   const dx = (rand() - 0.5) * 2, dy = (rand() - 0.5) * 1.4, dz = (rand() - 0.5) * 2;
+   const dl = Math.hypot(dx, dy, dz) || 1;
+   const spd = 4 + rand() * 10;
+   spawnDebris(hitPos.x, hitPos.y, hitPos.z, (dx / dl) * spd, (dy / dl) * spd, (dz / dl) * spd, 1.0, 0.86, 0.58, 1.0 + rand() * 1.5, 0.72, 10 + rand() * 8, 0);
+  }
+  spawnShockwave(hitPos, { maxRadius: Math.max(a.radius + b.radius, 4) * 2.2, flashSize: Math.max(a.radius + b.radius, 4) * 2.4, dur: 1.3, colorA: [0.92, 0.96, 1.0], colorB: [0.46, 0.82, 1.0] });
+  announceEvent('弹性碰撞 · 动量反弹', `${a.name} × ${b.name} 发生弹性台球撞击`, 'info');
+ }
+
+ function triggerTypeIaSupernova(wd, detailOverride = null) {
+  if (!wd || !wd.alive || !sim) return;
+  const pos = wd.pos.clone();
+  const vel = wd.vel.clone();
+  const nm = wd.name;
+  hideEntityVisual(wd);
+  wd.status = 'supernova';
+  stats.supernovae++;
+  stats.typeIaSupernovae++;
+
+  for (let i = 0; i < 1100; i++) {
+   const theta = rand() * Math.PI * 2;
+   const u = rand() * 2 - 1;
+   const s = Math.sqrt(Math.max(0, 1 - u * u));
+   const dx = Math.cos(theta) * s, dy = u, dz = Math.sin(theta) * s;
+   const outer = i < 660;
+   const rOff = (outer ? 2.2 : 1.0) + rand() * 2.2;
+   const spd = outer ? (16 + rand() * 22) : (6 + rand() * 13);
+   const col = outer ? [0.78, 0.94, 1.0] : [0.44, 0.76, 1.0];
+   spawnDebris(
+    pos.x + dx * rOff, pos.y + dy * rOff, pos.z + dz * rOff,
+    vel.x + dx * spd, vel.y + dy * spd * 0.85, vel.z + dz * spd,
+    col[0], col[1], col[2], 1.5 + rand() * 3.0, 0.88 + rand() * 0.12, 24 + rand() * 22, 1
+   );
+  }
+  spawnShockwave(pos, { maxRadius: 62, flashSize: 52, dur: 3.5, colorA: [0.96, 0.99, 1.0], colorB: [0.46, 0.84, 1.0] });
+  spawnShockwave(pos, { maxRadius: 46, flashSize: 38, dur: 2.8, colorA: [0.85, 0.95, 1.0], colorB: [0.58, 0.62, 1.0], tiltX: Math.PI * 0.28, tiltZ: 0.55 });
+  applyBlastImpulse(pos, 22, 145);
+  triggerGravityWave(pos, 0.82);
+  bloomSurge = Math.min(0.56, bloomSurge + 0.38);
+  rippleSurge = Math.min(0.95, rippleSurge + 0.68);
+  triggerBulletTime(1.9, 0.15);
+  announceEvent('Ia 型热核超新星', detailOverride || `${nm} 突破 1.44 M☉ 钱德拉塞卡极限，彻底炸碎不留残骸！`, 'supernova', 165.0);
+ }
+
+ function triggerSpinBreakup(e) {
+  if (!e || !e.alive || !sim) return;
+  const pos = e.pos.clone(), vel = e.vel.clone(), r = e.radius, col = e.color.clone(), nm = e.name;
+  const spinSign = e.spinRate >= 0 ? 1 : -1;
+  const eqSpd = Math.min(26, Math.max(7, Math.abs(e.spinRate) * r * 1.45));
+  hideEntityVisual(e);
+  e.status = 'spin-breakup';
+  stats.spinBreakups++;
+  stats.shatters++;
+
+  // Flat blazing equatorial centrifugal ring + flying fragments
+  for (let i = 0; i < 560; i++) {
+   const ang = rand() * Math.PI * 2;
+   const radialFrac = 0.45 + Math.pow(rand(), 0.7) * 0.85;
+   const rx = Math.cos(ang), rz = Math.sin(ang);
+   const tx = -rz * spinSign, tz = rx * spinSign;
+   const outSpd = eqSpd * (0.45 + rand() * 0.65);
+   const tangSpd = eqSpd * (0.75 + rand() * 0.55);
+   const yOff = (rand() - 0.5) * r * 0.42;
+   spawnDebris(
+    pos.x + rx * r * radialFrac, pos.y + yOff, pos.z + rz * r * radialFrac,
+    vel.x + rx * outSpd + tx * tangSpd, vel.y + (rand() - 0.5) * eqSpd * 0.28, vel.z + rz * outSpd + tz * tangSpd,
+    col.r, col.g, col.b,
+    1.2 + Math.pow(rand(), 1.4) * 2.6, 0.62 + rand() * 0.38, 26 + rand() * 20, e.isGasOrIce ? 1 : 0
+   );
+  }
+  spawnShockwave(pos, {
+   maxRadius: Math.max(r, 2) * 5.6,
+   flashSize: Math.max(r, 2) * 4.2,
+   dur: 2.5,
+   colorA: [1.0, 0.90, 0.66],
+   colorB: [1.0, 0.48, 0.16]
+  });
+  bloomSurge = Math.min(0.42, bloomSurge + 0.24);
+  triggerBulletTime(1.45, 0.2);
+  announceEvent('超临界自转解体', `${nm} 离心力突破自身引力束缚，沿赤道甩碎成碎片环！`, 'shatter');
+ }
+
  function handlePlanetImpact(a, b) {
   if (!a.alive || !b.alive || !sim) return;
   stats.impacts++;
@@ -1773,6 +2110,12 @@ export function createCosmicSandbox({
   vA.copy(b.pos).sub(a.pos);
   const dist = Math.max(vA.length(), 0.1);
   const normal = vA.clone().divideScalar(dist);
+
+  if (config.collisionMode === 'elastic' || ((!config.allowBreakup || (a.noBreakup && b.noBreakup)) && a.pinned !== b.pinned)) {
+   handleElasticBounce(a, b, normal, dist);
+   return;
+  }
+
   const hitPos = a.pos.clone().addScaledVector(normal, a.radius * (dist / (a.radius + b.radius)));
 
   vB.copy(a.vel).sub(b.vel);
@@ -1783,7 +2126,8 @@ export function createCosmicSandbox({
   const energy = +(0.5 * reducedMass * relSpeed * relSpeed * 0.18).toFixed(1);
   const massRatio = Math.max(a.mass, b.mass) / Math.max(Math.min(a.mass, b.mass), 0.01);
 
-  const hypervelocity = relSpeed >= Math.max(13.5, vEsc * 2.8) && massRatio < 2.8;
+  const canShatter = config.collisionMode === 'realistic' && config.allowBreakup && !a.noBreakup && !b.noBreakup;
+  const hypervelocity = canShatter && relSpeed >= Math.max(13.5, vEsc * 2.8) && massRatio < 2.8;
 
   vC.crossVectors(normal, vUp);
   if (vC.lengthSq() < 1e-4) vC.set(1, 0, 0);
@@ -1827,19 +2171,28 @@ export function createCosmicSandbox({
    announceEvent('超高速粉碎', `${a.name} × ${b.name} 灾难性对撞解体（${energy}×10³² J）`, 'shatter', energy);
   } else {
    stats.mergers++;
-   const survivor = a.mass >= b.mass ? a : b;
+   const survivor = (a.pinned || (!b.pinned && a.mass >= b.mass)) ? a : b;
    const absorbed = survivor === a ? b : a;
    const impactFromAbsorbed = absorbed.pos.clone().sub(survivor.pos).normalize();
+
+   // Oblique impact imparts angular momentum -> spin-up!
+   const relV = absorbed.vel.clone().sub(survivor.vel);
+   const tangV = relV.clone().addScaledVector(impactFromAbsorbed, -relV.dot(impactFromAbsorbed));
+   const spinKick = (tangV.x * impactFromAbsorbed.z - tangV.z * impactFromAbsorbed.x) * (absorbed.mass / Math.max(totalMass, 0.02)) * 0.14;
 
    hideEntityVisual(absorbed);
    absorbed.status = 'merged';
 
-   survivor.pos.copy(survivor.pos.clone().multiplyScalar(survivor.mass).addScaledVector(absorbed.pos, absorbed.mass).divideScalar(totalMass));
-   survivor.vel.copy(cmVel);
+   if (!survivor.pinned) {
+    survivor.pos.copy(survivor.pos.clone().multiplyScalar(survivor.mass).addScaledVector(absorbed.pos, absorbed.mass).divideScalar(totalMass));
+    survivor.vel.copy(cmVel);
+   }
    survivor.mass = totalMass;
    survivor.targetRadius = Math.min(7.2, Math.cbrt(Math.pow(survivor.radius, 3) + Math.pow(absorbed.radius, 3)));
    survivor.mergedCount++;
    survivor.lavaHeat = 1.0;
+   survivor.temperature = Math.min(4200, Math.max(survivor.temperature || 400, 1950 + relSpeed * 55));
+   survivor.spinRate = THREE.MathUtils.clamp((survivor.spinRate || 0.2) + spinKick, -6, 6);
    survivor.impactDir.copy(impactFromAbsorbed);
 
    const count = 380;
@@ -1878,8 +2231,9 @@ export function createCosmicSandbox({
 
    bloomSurge = Math.min(0.44, bloomSurge + 0.26);
    rippleSurge = Math.min(0.80, rippleSurge + 0.34);
-   if (absorbed.kind !== 'comet') triggerBulletTime(1.55, 0.18);
+   if (absorbed.kind !== 'comet' && absorbed.kind !== 'moon') triggerBulletTime(1.55, 0.18);
    announceEvent('行星大撞击 · 熔融合并', `${survivor.name} 吞并 ${absorbed.name}（${energy}×10³² J）`, 'merger', energy);
+   checkMassCollapse(survivor);
   }
  }
 
@@ -1919,7 +2273,13 @@ export function createCosmicSandbox({
  // Self-collapse / Ignition when user cranks mass past astrophysical thresholds!
  function checkMassCollapse(e) {
   if (!e || !e.alive || !sim) return;
-  if ((e.kind === 'planet' || e.kind === 'comet') && e.mass >= 1.8) {
+  if (e.kind === 'white-dwarf' && e.mass >= 1.44) {
+   stats.collapses++;
+   triggerTypeIaSupernova(e);
+   unlockEgg('self-collapse', `将 ${e.name} 推破钱德拉塞卡极限触发 Ia 型超新星，解锁造物主坍缩彩蛋！`);
+   return;
+  }
+  if ((e.kind === 'planet' || e.kind === 'moon' || e.kind === 'comet') && e.mass >= 1.8) {
    stats.collapses++;
    const pos = e.pos.clone(), vel = e.vel.clone(), mass = Math.max(3.6, e.mass * 2.1);
    const oldName = e.name;
@@ -1956,6 +2316,10 @@ export function createCosmicSandbox({
   const e = sim.entities.find(x => x.id === id && x.alive);
   if (!e) return false;
 
+  if (e.kind === 'white-dwarf') {
+   triggerTypeIaSupernova(e, `人为引爆 ${e.name}，触发耀眼 Ia 型热核超新星！`);
+   return true;
+  }
   if (e.kind === 'star') {
    const pos = e.pos.clone(), vel = e.vel.clone(), m = e.mass, nm = e.name;
    hideEntityVisual(e);
@@ -1968,7 +2332,7 @@ export function createCosmicSandbox({
    });
    return true;
   }
-  if (e.kind === 'planet' || e.kind === 'comet' || e.kind === 'probe') {
+  if (isLightKind(e.kind)) {
    const pos = e.pos.clone(), vel = e.vel.clone();
    hideEntityVisual(e);
    e.status = 'shattered';
@@ -1982,7 +2346,7 @@ export function createCosmicSandbox({
    spawnShockwave(pos, { maxRadius: Math.max(e.radius, 2) * 5.2, flashSize: Math.max(e.radius, 2) * 5.5, dur: 2.5, colorA: [1.0, 0.94, 0.78], colorB: [1.0, 0.42, 0.14] });
    bloomSurge = Math.min(0.45, bloomSurge + 0.28);
    triggerBulletTime(1.4, 0.2);
-   announceEvent('行星引爆解体', `${e.name} 已化作炽热碎片云`, 'shatter');
+   announceEvent('天体引爆解体', `${e.name} 已化作炽热碎片云`, 'shatter');
    return true;
   }
   if (e.kind === 'neutron') {
@@ -2010,7 +2374,8 @@ export function createCosmicSandbox({
  // ==========================================================================
  function stepPhysics(dtSim) {
   if (!sim || dtSim <= 0) return;
-  const substeps = 6;
+  // Adaptive Verlet substeps so 0.05x..100x stays symplectic & stable!
+  const substeps = Math.min(64, Math.max(6, Math.ceil(dtSim / 0.028)));
   const h = dtSim / substeps;
   const guixu = sim.bh;
 
@@ -2019,43 +2384,132 @@ export function createCosmicSandbox({
    guixu.targetRadius = baseBhRadius * bhVisualScale(guixu.mass);
   }
 
+  const dragFactor = config.drag > 0 ? Math.exp(-config.drag * 0.34 * h) : 1;
+  const spinStepVis = Math.min(h, 0.032);
+
   for (let s = 0; s < substeps; s++) {
-   // 1. Velocity Verlet position update
+   // 1. Velocity Verlet position update (saving prevPos for Swept-Segment CCD!)
    for (const e of sim.entities) {
-    if (!e.alive || drag.target === e) continue;
+    if (!e.alive) continue;
+    e.prevPos.copy(e.pos);
+    if (drag.target === e) continue;
+    if (e.pinned) {
+     e.vel.set(0, 0, 0);
+     continue;
+    }
     e.pos.x += e.vel.x * h + 0.5 * e.acc.x * h * h;
     e.pos.y += e.vel.y * h + 0.5 * e.acc.y * h * h;
     e.pos.z += e.vel.z * h + 0.5 * e.acc.z * h * h;
    }
 
-   // 2. Pairwise N-body accelerations
+   // 2. Pairwise N-body accelerations (with planet-planet boost & pinned immunity)
    computeAccelerations(sim.entities, false);
 
-   // 3. Velocity update & smooth radius easing
+   // 3. Velocity update, drag, spin/oblateness/critical breakup, thermal evolution & slingshots
    for (const e of sim.entities) {
     if (!e.alive || drag.target === e) continue;
-    e.vel.x += 0.5 * (e.acc.x + e.accNext.x) * h;
-    e.vel.y += 0.5 * (e.acc.y + e.accNext.y) * h;
-    e.vel.z += 0.5 * (e.acc.z + e.accNext.z) * h;
-    e.acc.copy(e.accNext);
+    if (e.pinned) {
+     e.vel.set(0, 0, 0);
+     e.acc.set(0, 0, 0);
+    } else {
+     e.vel.x += 0.5 * (e.acc.x + e.accNext.x) * h;
+     e.vel.y += 0.5 * (e.acc.y + e.accNext.y) * h;
+     e.vel.z += 0.5 * (e.acc.z + e.accNext.z) * h;
+     e.acc.copy(e.accNext);
 
-    const spdSq = e.vel.lengthSq();
-    if (spdSq > 165 * 165) e.vel.multiplyScalar(165 / Math.sqrt(spdSq));
+     if (dragFactor < 1 && e.kind !== 'bh') {
+      const bv = sim.baryVel;
+      e.vel.x = bv.x + (e.vel.x - bv.x) * dragFactor;
+      e.vel.y = bv.y + (e.vel.y - bv.y) * dragFactor;
+      e.vel.z = bv.z + (e.vel.z - bv.z) * dragFactor;
+     }
+
+     const spdSq = e.vel.lengthSq();
+     if (spdSq > 185 * 185) e.vel.multiplyScalar(185 / Math.sqrt(spdSq));
+    }
 
     if (Math.abs(e.radius - e.targetRadius) > 0.005) {
      e.radius += (e.targetRadius - e.radius) * Math.min(1, h * 8);
     }
 
-    // Cool molten crust slowly
+    // Cool molten impact crust slowly
     if (e.lavaHeat > 0.002) e.lavaHeat *= Math.exp(-0.042 * h);
     else if (e.lavaHeat) e.lavaHeat = 0;
 
+    // Spin rotation, centrifugal equatorial oblateness & critical spin breakup!
+    if (e.kind !== 'bh' && e.kind !== 'probe') {
+     e.spinAngle = (e.spinAngle || 0) + (e.spinRate || 0) * 2.3 * spinStepVis;
+     const crit = criticalSpinFor(e);
+     const ratio = Number.isFinite(crit) ? Math.abs(e.spinRate || 0) / Math.max(crit, 0.05) : 0;
+     const ob = Math.min(ratio, 1.38);
+     e.oblateXZ = 1 + 0.30 * ob * ob;
+     e.oblateY = 1 / (e.oblateXZ * e.oblateXZ);
+     e._spinRatio = ratio;
+
+     if (ratio > 1.0) {
+      // Emit glowing equatorial centrifugal shedding sparks!
+      if (s === 0 && rand() < Math.min(0.92, (0.35 + (ratio - 1) * 0.8) * Math.min(dtSim * 12, 1.2))) {
+       const ang = rand() * Math.PI * 2;
+       const rx = Math.cos(ang), rz = Math.sin(ang);
+       const sign = (e.spinRate || 1) >= 0 ? 1 : -1;
+       const tx = -rz * sign, tz = rx * sign;
+       const eqR = e.radius * e.oblateXZ * 1.04;
+       const tangSpd = Math.min(20, Math.abs(e.spinRate) * e.radius * 1.35 + 3);
+       spawnDebris(
+        e.pos.x + rx * eqR, e.pos.y + (rand() - 0.5) * e.radius * 0.28, e.pos.z + rz * eqR,
+        e.vel.x + tx * tangSpd + rx * 2.4, e.vel.y + (rand() - 0.5) * 1.2, e.vel.z + tz * tangSpd + rz * 2.4,
+        1.0, 0.72, 0.34, 1.0 + rand() * 1.5, 0.78, 10 + rand() * 8, 0
+       );
+      }
+      if (config.allowBreakup && !e.noBreakup) {
+       e.spinDamage = (e.spinDamage || 0) + (0.58 + (ratio - 1.0) * 1.5) * h;
+       if (e.spinDamage >= 1.0) {
+        triggerSpinBreakup(e);
+        continue;
+       }
+      } else {
+       e.spinDamage = 0;
+      }
+     } else if (e.spinDamage) {
+      e.spinDamage = Math.max(0, e.spinDamage - h * 0.45);
+     }
+    }
+
+    // Surface Temperature Evolution & Scorching Thermal Evaporation Tail (on last substep for performance)
+    if (s === substeps - 1 && isLightKind(e.kind) && e.kind !== 'probe') {
+     const tEq = equilibriumTempAt(e.pos, e);
+     if (e.tempHold > 0) e.tempHold = Math.max(0, e.tempHold - dtSim);
+     const rate = tEq > (e.temperature || 260) + 180 ? 0.36 : (e.tempHold > 0 ? 0.008 : 0.045);
+     const targetT = e.subType === 'brown-dwarf' ? Math.max(tEq, 1100) : tEq;
+     e.temperature = (e.temperature || targetT) + (targetT - (e.temperature || targetT)) * Math.min(1, rate * dtSim);
+     if (e.temperature > 2550) {
+      // Visible comet-like thermal evaporation plume streaming away from nearest star
+      const nearStar = sim.entities.find(st => st.alive && st.kind === 'star');
+      const away = nearStar ? vA.copy(e.pos).sub(nearStar.pos).normalize() : vA.set(1, 0, 0);
+      if (rand() < Math.min(0.95, ((e.temperature - 2500) / 1400) * Math.min(dtSim * 18, 1.2))) {
+       spawnDebris(
+        e.pos.x + away.x * e.radius * 1.05 + (rand() - 0.5) * e.radius * 0.6,
+        e.pos.y + (rand() - 0.5) * e.radius * 0.5,
+        e.pos.z + away.z * e.radius * 1.05 + (rand() - 0.5) * e.radius * 0.6,
+        e.vel.x + away.x * (7 + rand() * 8) + (rand() - 0.5) * 2,
+        e.vel.y + (rand() - 0.5) * 1.5,
+        e.vel.z + away.z * (7 + rand() * 8) + (rand() - 0.5) * 2,
+        1.0, 0.58, 0.24, 1.1 + rand() * 1.6, 0.85, 11 + rand() * 9, 0
+       );
+      }
+      if (config.allowBreakup && !e.noBreakup && e.mass > 0.006) {
+       const ablate = Math.exp(-0.014 * Math.min(dtSim, 0.5));
+       e.mass = Math.max(0.005, e.mass * ablate);
+       e.targetRadius = Math.max(0.75, e.targetRadius * Math.cbrt(ablate));
+      }
+     }
+    }
+
     // Track gravitational slingshot acceleration boost for Probes & Planets!
-    if (e.kind === 'probe' || e.kind === 'planet') {
-     const spd = Math.sqrt(spdSq);
+    if ((e.kind === 'probe' || e.kind === 'planet') && !e.pinned) {
+     const spd = e.vel.length();
      if (spd > e.peakSpeed) e.peakSpeed = spd;
      if (!e.slingshotAwarded && e.baseSpeed > 1.5 && spd > Math.max(e.baseSpeed * 1.85, 20)) {
-      // Confirm near a heavy body for genuine gravity assist
       for (const attr of sim.entities) {
        if (!attr.alive || attr === e) continue;
        if (attr.kind !== 'bh' && attr.kind !== 'star' && !(attr.kind === 'planet' && attr.isGasOrIce)) continue;
@@ -2075,7 +2529,7 @@ export function createCosmicSandbox({
     }
    }
 
-   // 4. Tidal stress accumulation & pairwise cataclysms (NO invisible bounce walls!)
+   // 4. Tidal stress accumulation & Swept-Segment CCD pairwise cataclysms
    const ents = sim.entities;
    for (let i = 0; i < ents.length; i++) {
     const a = ents[i];
@@ -2091,7 +2545,8 @@ export function createCosmicSandbox({
      if (!b.alive) continue;
      if (!a.alive) break;
 
-     const d2 = a.pos.distanceToSquared(b.pos);
+     const seg = segmentMinDistSq(a.prevPos, a.pos, b.prevPos, b.pos);
+     const d2 = seg.d2;
 
      // --- BH x BH ---
      if (a.kind === 'bh' && b.kind === 'bh') {
@@ -2120,9 +2575,10 @@ export function createCosmicSandbox({
        st._tidalTarget = bh;
 
        if (d < rocheS * 1.25) {
-        st.tidalDamage = (st.tidalDamage || 0) + (0.48 + stress * 1.75) * h;
+        if (config.allowBreakup && !st.noBreakup) {
+         st.tidalDamage = (st.tidalDamage || 0) + (0.48 + stress * 1.75) * h;
+        }
         bh.flare = Math.min(1.8, (bh.flare || 0) + h * 0.55);
-        // Strip blazing plasma filaments directly off the star into the BH
         if (rand() < Math.min(0.9, (0.25 + stress * 0.7) * h * 30)) {
          vA.copy(bh.pos).sub(st.pos).normalize();
          const side = vB.crossVectors(vA, vUp).normalize();
@@ -2138,10 +2594,40 @@ export function createCosmicSandbox({
          );
         }
        }
-       if (d <= bh.radius * 2.9 + st.radius * 0.72 || st.tidalDamage >= 1.0) {
+       if ((config.allowBreakup && !st.noBreakup) && (d <= bh.radius * 2.9 + st.radius * 0.72 || st.tidalDamage >= 1.0)) {
         handleStellarTDE(st, bh);
         continue;
        }
+      }
+      continue;
+     }
+
+     // --- White Dwarf x White Dwarf or Star -> Type Ia Supernova! ---
+     if ((a.kind === 'white-dwarf' && (b.kind === 'white-dwarf' || b.kind === 'star')) ||
+         (b.kind === 'white-dwarf' && a.kind === 'star')) {
+      const minR = (a.radius + b.radius) * 1.1;
+      if (d2 < minR * minR) {
+       const wd = a.kind === 'white-dwarf' ? a : b;
+       const other = wd === a ? b : a;
+       const nmA = a.name, nmB = b.name;
+       hideEntityVisual(other);
+       other.status = 'supernova';
+       triggerTypeIaSupernova(wd, `${nmA} × ${nmB} 突破钱德拉塞卡极限，引发耀眼 Ia 型热核超新星！`);
+       continue;
+      }
+      continue;
+     }
+
+     // --- White Dwarf x BH or Neutron ---
+     if ((a.kind === 'white-dwarf' && (b.kind === 'bh' || b.kind === 'neutron')) ||
+         (b.kind === 'white-dwarf' && (a.kind === 'bh' || a.kind === 'neutron'))) {
+      const wd = a.kind === 'white-dwarf' ? a : b;
+      const other = wd === a ? b : a;
+      const minR = other.radius * 2.4 + wd.radius;
+      if (d2 < minR * minR) {
+       if (other.kind === 'bh') handleNeutronBlackHole(wd, other);
+       else triggerTypeIaSupernova(wd, `${wd.name} 撞击 ${other.name}，引爆高能 Ia 型热核超新星！`);
+       continue;
       }
       continue;
      }
@@ -2150,6 +2636,10 @@ export function createCosmicSandbox({
      if (a.kind === 'star' && b.kind === 'star') {
       const minR = (a.radius + b.radius) * 0.92;
       if (d2 < minR * minR) {
+       if (seg.t < 0.99) {
+        a.pos.lerpVectors(a.prevPos, a.pos, seg.t);
+        b.pos.lerpVectors(b.prevPos, b.pos, seg.t);
+       }
        handleStarStarCollision(a, b);
        continue;
       }
@@ -2199,24 +2689,31 @@ export function createCosmicSandbox({
       continue;
      }
 
-     // --- Light body (planet/comet/probe) x BH or Neutron ---
-     const aLight = a.kind === 'planet' || a.kind === 'comet' || a.kind === 'probe';
-     const bLight = b.kind === 'planet' || b.kind === 'comet' || b.kind === 'probe';
-     const aCompact = a.kind === 'bh' || a.kind === 'neutron';
-     const bCompact = b.kind === 'bh' || b.kind === 'neutron';
+     // --- Light body (planet/moon/comet/probe) x BH, Neutron, or White Dwarf ---
+     const aLight = isLightKind(a.kind);
+     const bLight = isLightKind(b.kind);
+     const aCompact = isCompactKind(a.kind);
+     const bCompact = isCompactKind(b.kind);
 
      if ((aLight && bCompact) || (bLight && aCompact)) {
       const p = aLight ? a : b;
       const attr = aCompact ? a : b;
       if (p.kind === 'probe') {
-       // Probes survive ultra-close slingshots outside horizon!
        const hitR = attr.radius * 1.9;
-       if (d2 < hitR * hitR) {
+       if (d2 < hitR * hitR && config.allowBreakup && !p.noBreakup) {
         hideEntityVisual(p);
         p.status = 'vaporized';
         stats.vaporized++;
         spawnShockwave(p.pos, { maxRadius: 10, flashSize: 8, dur: 1.2, colorA: [0.6, 1.0, 0.9], colorB: [1.0, 0.6, 0.2] });
         announceEvent('探测器坠毁', `${p.name} 落入 ${attr.name} 视界`, 'tde');
+       }
+       continue;
+      }
+      if (attr.kind === 'white-dwarf') {
+       const hitR = (attr.radius + p.radius) * 1.05;
+       if (d2 < hitR * hitR) {
+        handleStellarImpact(p, attr);
+        checkMassCollapse(attr);
        }
        continue;
       }
@@ -2231,7 +2728,9 @@ export function createCosmicSandbox({
         p._tidalTarget = attr;
        }
        if (d < rocheR * 1.32) {
-        p.tidalDamage += (0.45 + stress * 1.65) * h;
+        if (config.allowBreakup && !p.noBreakup) {
+         p.tidalDamage += (0.45 + stress * 1.65) * h;
+        }
         if (rand() < Math.min(0.85, (0.22 + stress * 0.65) * h * 26)) {
          vA.copy(attr.pos).sub(p.pos).normalize();
          const side = vB.crossVectors(vA, vUp).normalize();
@@ -2245,7 +2744,7 @@ export function createCosmicSandbox({
          );
         }
        }
-       if (d <= rocheR * 1.02 || p.tidalDamage >= 1.0) {
+       if (config.allowBreakup && !p.noBreakup && (d <= rocheR * 1.02 || p.tidalDamage >= 1.0)) {
         disruptPlanetTDE(p, attr);
         continue;
        }
@@ -2259,16 +2758,26 @@ export function createCosmicSandbox({
       const st = a.kind === 'star' ? a : b;
       const minR = (st.radius + p.radius) * 0.92;
       if (d2 < minR * minR) {
-       handleStellarImpact(p, st);
+       if (!config.allowBreakup || p.noBreakup) {
+        const distNow = Math.max(a.pos.distanceTo(b.pos), 0.1);
+        const norm = vA.copy(b.pos).sub(a.pos).divideScalar(distNow);
+        handleElasticBounce(a, b, norm, distNow);
+       } else {
+        handleStellarImpact(p, st);
+       }
        continue;
       }
       continue;
      }
 
-     // --- Planet/Comet x Planet/Comet ---
-     if ((a.kind === 'planet' || a.kind === 'comet') && (b.kind === 'planet' || b.kind === 'comet')) {
+     // --- Planet/Moon/Comet x Planet/Moon/Comet ---
+     if ((aLight && a.kind !== 'probe') && (bLight && b.kind !== 'probe')) {
       const minR = (a.radius + b.radius) * 0.96;
       if (d2 < minR * minR) {
+       if (seg.t < 0.99) {
+        a.pos.lerpVectors(a.prevPos, a.pos, seg.t);
+        b.pos.lerpVectors(b.prevPos, b.pos, seg.t);
+       }
        handlePlanetImpact(a, b);
        continue;
       }
@@ -2288,16 +2797,17 @@ export function createCosmicSandbox({
    }
   }
 
-  // Update system barycenter across all heavy bodies (or all alive bodies)
-  let sumM = 0, bx = 0, by = 0, bz = 0, vx = 0, vz = 0;
+  // Update system barycenter & barycenter velocity across all alive bodies
+  let sumM = 0, bx = 0, by = 0, bz = 0, vx = 0, vy = 0, vz = 0;
   for (const e of sim.entities) {
    if (!e.alive) continue;
    sumM += e.mass;
    bx += e.pos.x * e.mass; by += e.pos.y * e.mass; bz += e.pos.z * e.mass;
-   vx += e.vel.x * e.mass; vz += e.vel.z * e.mass;
+   vx += e.vel.x * e.mass; vy += e.vel.y * e.mass; vz += e.vel.z * e.mass;
   }
   if (sumM > 1e-4) {
    sim.barycenter.set(bx / sumM, by / sumM, bz / sumM);
+   sim.baryVel.set(vx / sumM, vy / sumM, vz / sumM);
    sim.barySpeed = Math.hypot(vx / sumM, vz / sumM);
   }
 
@@ -2307,7 +2817,7 @@ export function createCosmicSandbox({
   if (threeBodyActive && !unlockedEggs.has('three-body')) {
    unlockEgg('three-body', '场内已集齐三颗恒星，行星标签切换实时恒纪元 / 乱纪元温态！');
   }
-  const aliveWorlds = sim.entities.filter(e => e.alive && (e.kind === 'planet' || e.kind === 'comet'));
+  const aliveWorlds = sim.entities.filter(e => e.alive && (e.kind === 'planet' || e.kind === 'moon' || e.kind === 'comet'));
   const aliveBHs = sim.entities.filter(e => e.alive && e.kind === 'bh');
   if (!voidPrompted && aliveStars.length === 0 && aliveWorlds.length === 0 && aliveBHs.length >= 1) {
    voidPrompted = true;
@@ -2323,14 +2833,14 @@ export function createCosmicSandbox({
  function stepDebris(dtSim) {
   if (!sim || dtSim <= 0) return;
   const G = gUnit();
-  // Collect up to 4 heaviest alive attractors so spawned stars/BHs bend debris too!
   const heavy = sim.entities
-   .filter(e => e.alive && (e.kind === 'bh' || e.kind === 'star' || e.kind === 'neutron'))
+   .filter(e => e.alive && (e.kind === 'bh' || e.kind === 'star' || e.kind === 'neutron' || e.kind === 'white-dwarf'))
    .sort((a, b) => b.mass - a.mass)
    .slice(0, 4);
 
   const nH = heavy.length;
-  const h = dtSim * 0.5;
+  const debrisSubs = Math.min(12, Math.max(2, Math.ceil(dtSim / 0.06)));
+  const h = dtSim / debrisSubs;
   let aliveCount = 0;
 
   for (let i = 0; i < MAX_DEBRIS; i++) {
@@ -2347,7 +2857,7 @@ export function createCosmicSandbox({
    let vx = dVel[i3], vy = dVel[i3 + 1], vz = dVel[i3 + 2];
    let absorbed = false;
 
-   for (let sub = 0; sub < 2; sub++) {
+   for (let sub = 0; sub < debrisSubs; sub++) {
     let ax = 0, ay = 0, az = 0;
     let heated = false;
     for (let k = 0; k < nH; k++) {
@@ -2428,18 +2938,24 @@ export function createCosmicSandbox({
    const sbDist = tidalBH ? st.pos.distanceTo(tidalBH.pos) : 999;
    const starTidal = tidalBH ? THREE.MathUtils.smoothstep(sbDist, 66, 20) * THREE.MathUtils.clamp(tidalBH.mass / 12.4, 0.4, 2.2) : 0;
    const scaleMul = st.radius / STAR_RADIUS;
+   const ox = st.oblateXZ || 1, oy = st.oblateY || 1;
    if (star) {
     star.visible = true;
     star.position.copy(st.pos);
     const stretch = 1 + Math.min(0.45, starTidal * 0.22 + (st.tidalStress || 0) * 0.35);
     const squash = 1 / Math.sqrt(stretch);
-    star.scale.set(baseStarScale.x * scaleMul * stretch, baseStarScale.y * scaleMul * squash, baseStarScale.z * scaleMul * squash);
-    if (tidalBH) star.rotation.y = -Math.atan2(tidalBH.pos.z - st.pos.z, tidalBH.pos.x - st.pos.x);
+    star.scale.set(baseStarScale.x * scaleMul * stretch * ox, baseStarScale.y * scaleMul * squash * oy, baseStarScale.z * scaleMul * squash * ox);
+    if (tidalBH && starTidal > 0.05) star.rotation.y = -Math.atan2(tidalBH.pos.z - st.pos.z, tidalBH.pos.x - st.pos.x);
+    else star.rotation.y = st.spinAngle || 0;
    }
    if (corona) {
     corona.visible = true;
     corona.position.copy(st.pos);
-    corona.scale.copy(baseCoronaScale).multiplyScalar(scaleMul * (1 + Math.min(0.32, starTidal * 0.08 + (st.flare || 0) * 0.20)));
+    corona.scale.set(
+     baseCoronaScale.x * scaleMul * ox * (1 + Math.min(0.32, starTidal * 0.08 + (st.flare || 0) * 0.20)),
+     baseCoronaScale.y * scaleMul * oy * (1 + Math.min(0.32, starTidal * 0.08 + (st.flare || 0) * 0.20)),
+     baseCoronaScale.z * scaleMul * ox * (1 + Math.min(0.32, starTidal * 0.08 + (st.flare || 0) * 0.20))
+    );
    }
    if (halo) {
     halo.visible = true;
@@ -2497,6 +3013,12 @@ export function createCosmicSandbox({
   // Update all original planets + dynamic spawned bodies
   const aliveStarsForEra = sim.entities.filter(x => x.alive && x.kind === 'star');
   for (const e of sim.entities) {
+   const tempHeat = isLightKind(e.kind) && e.kind !== 'probe' ? THREE.MathUtils.smoothstep(e.temperature || 280, 1050, 2650) : 0;
+   const tempFrost = isLightKind(e.kind) && e.kind !== 'probe' ? THREE.MathUtils.smoothstep(185, 55, e.temperature || 280) : 0;
+   const spinGlow = THREE.MathUtils.smoothstep(e._spinRatio || 0, 0.78, 1.22);
+   const ox = e.oblateXZ || 1;
+   const oy = e.oblateY || 1;
+
    if (e.isOriginal && e.kind === 'planet') {
     const pv = e.visual;
     const b = e.body;
@@ -2504,11 +3026,18 @@ export function createCosmicSandbox({
      b.root.visible = true;
      b.root.position.copy(e.pos);
      const scaleFactor = e.radius / e.baseRadius;
-     b.surface.scale.setScalar(e.radius);
-     if (b.clouds) b.clouds.scale.setScalar(e.radius * 1.012);
-     if (b.atmosphere) b.atmosphere.scale.setScalar(e.radius * 1.06);
+     b.surface.rotation.y = e.spinAngle || 0;
+     b.surface.scale.set(e.radius * ox, e.radius * oy, e.radius * ox);
+     if (b.clouds) {
+      b.clouds.rotation.y = (e.spinAngle || 0) * 1.15;
+      b.clouds.scale.set(e.radius * 1.012 * ox, e.radius * 1.012 * oy, e.radius * 1.012 * ox);
+     }
+     if (b.atmosphere) {
+      b.atmosphere.rotation.z = b.tilt ? b.tilt.rotation.z : 0;
+      b.atmosphere.scale.set(e.radius * 1.06 * ox, e.radius * 1.06 * oy, e.radius * 1.06 * ox);
+     }
      if (b.ring) {
-      b.ring.scale.setScalar(scaleFactor);
+      b.ring.scale.setScalar(scaleFactor * Math.max(1, ox * 0.94));
       b.ring.material.uniforms.uCenter.value.copy(e.pos);
      }
      if (e.tidalStress > 0.015 && e._tidalTarget) {
@@ -2522,13 +3051,17 @@ export function createCosmicSandbox({
       b.root.quaternion.identity();
       b.root.scale.set(1, 1, 1);
      }
-     const crustHeat = Math.max(e.lavaHeat, e.tidalStress);
-     if (crustHeat > 0.008) {
+     const effHeat = Math.max(e.lavaHeat || 0, tempHeat);
+     const crustEnergy = Math.max(effHeat, e.tidalStress || 0, tempFrost * 0.6, spinGlow);
+     if (crustEnergy > 0.008) {
       pv.crust.mesh.visible = true;
-      pv.crust.mesh.scale.setScalar(e.radius * 1.028);
+      pv.crust.mesh.rotation.y = e.spinAngle || 0;
+      pv.crust.mesh.scale.set(e.radius * 1.028 * ox, e.radius * 1.028 * oy, e.radius * 1.028 * ox);
       pv.crust.uniforms.uTime.value = simAge;
-      pv.crust.uniforms.uHeat.value = e.lavaHeat;
-      pv.crust.uniforms.uTidal.value = e.tidalStress;
+      pv.crust.uniforms.uHeat.value = effHeat;
+      pv.crust.uniforms.uTidal.value = e.tidalStress || 0;
+      pv.crust.uniforms.uFrost.value = tempFrost;
+      pv.crust.uniforms.uSpinGlow.value = spinGlow;
       pv.crust.uniforms.uImpactDir.value.copy(e.impactDir);
      } else {
       pv.crust.mesh.visible = false;
@@ -2536,11 +3069,13 @@ export function createCosmicSandbox({
      pushTrail(pv.history, pv.trail, e.pos, 0.66);
      const refPos = primaryStar ? primaryStar.pos : sim.barycenter;
      const eraTag = aliveStarsForEra.length >= 3 ? computeEraTag(e.pos, aliveStarsForEra) : null;
-     const tag = e.mergedCount > 0
-      ? `合并 ×${e.mergedCount + 1}`
-      : e.tidalStress > 0.25
-       ? '洛希撕裂中'
-       : eraTag || `${(e.pos.distanceTo(refPos) / 31.4).toFixed(2)} AU`;
+     const tag = e.pinned
+      ? '📌 锚定'
+      : e.mergedCount > 0
+       ? `合并 ×${e.mergedCount + 1}`
+       : e.tidalStress > 0.25
+        ? '洛希撕裂中'
+        : eraTag || `${(e.pos.distanceTo(refPos) / 31.4).toFixed(2)} AU`;
      const small = b.label.querySelector('small');
      if (small && small.textContent !== tag) small.textContent = tag;
     } else {
@@ -2551,7 +3086,7 @@ export function createCosmicSandbox({
     if (e.alive) {
      e.dynVisual.root.visible = true;
      e.dynVisual.root.position.copy(e.pos);
-     if ((e.kind === 'planet' || e.kind === 'comet' || e.kind === 'star') && e.tidalStress > 0.015 && e._tidalTarget) {
+     if ((e.kind === 'planet' || e.kind === 'moon' || e.kind === 'comet' || e.kind === 'star') && e.tidalStress > 0.015 && e._tidalTarget) {
       const stretch = 1 + e.tidalStress * (e.kind === 'star' ? 0.55 : 1.45);
       const squash = 1 / Math.sqrt(stretch);
       vB.copy(e._tidalTarget.pos).sub(e.pos).normalize();
@@ -2564,13 +3099,17 @@ export function createCosmicSandbox({
      }
      e.dynVisual.update(simAge, e);
      if (e.dynVisual.crust) {
-      const crustHeat = Math.max(e.lavaHeat || 0, e.tidalStress || 0);
-      if (crustHeat > 0.008) {
+      const effHeat = Math.max(e.lavaHeat || 0, tempHeat);
+      const crustEnergy = Math.max(effHeat, e.tidalStress || 0, tempFrost * 0.6, spinGlow);
+      if (crustEnergy > 0.008) {
        e.dynVisual.crust.mesh.visible = true;
-       e.dynVisual.crust.mesh.scale.setScalar(e.radius * 1.03);
+       e.dynVisual.crust.mesh.rotation.y = e.spinAngle || 0;
+       e.dynVisual.crust.mesh.scale.set(e.radius * 1.032 * ox, e.radius * 1.032 * oy, e.radius * 1.032 * ox);
        e.dynVisual.crust.uniforms.uTime.value = simAge;
-       e.dynVisual.crust.uniforms.uHeat.value = e.lavaHeat || 0;
+       e.dynVisual.crust.uniforms.uHeat.value = effHeat;
        e.dynVisual.crust.uniforms.uTidal.value = e.tidalStress || 0;
+       e.dynVisual.crust.uniforms.uFrost.value = tempFrost;
+       e.dynVisual.crust.uniforms.uSpinGlow.value = spinGlow;
        e.dynVisual.crust.uniforms.uImpactDir.value.copy(e.impactDir);
       } else {
        e.dynVisual.crust.mesh.visible = false;
@@ -2746,37 +3285,46 @@ export function createCosmicSandbox({
  // ==========================================================================
  // 12. CAMERA FREEDOM (FOLLOW-CAM, QUICK VIEWS, WASD/QE FREE FLIGHT)
  // ==========================================================================
- function setCameraView(preset) {
+ function setCameraView(preset, immediate = false) {
   if (!active || !sim) return;
+  const sp = Math.max(1.0, sim.spreadUsed || config.orbitSpread || 1.0);
   const center = (followEntity && followEntity.alive) ? followEntity.pos.clone() : sim.barycenter.clone();
   let targetPos = center.clone();
   let camPos;
   if (preset === 'top') {
    followEntity = null;
    targetPos.copy(sim.barycenter);
-   camPos = targetPos.clone().add(new THREE.Vector3(0, 240, 0.2));
+   camPos = targetPos.clone().add(new THREE.Vector3(0, Math.min(540, 230 * sp), 0.2));
   } else if (preset === 'side') {
    followEntity = null;
    targetPos.copy(sim.barycenter);
-   camPos = targetPos.clone().add(new THREE.Vector3(0, 18, 225));
+   camPos = targetPos.clone().add(new THREE.Vector3(0, 22 * Math.sqrt(sp), Math.min(500, 220 * sp)));
   } else if (preset === 'barycenter') {
    followEntity = null;
    targetPos.copy(sim.barycenter);
-   camPos = targetPos.clone().add(new THREE.Vector3(-42, 92, 175));
+   camPos = targetPos.clone().add(new THREE.Vector3(-42 * Math.sqrt(sp), 96 * Math.sqrt(sp), 185 * Math.sqrt(sp)));
   } else {
-   // 'overview'
+   // 'overview' frames Alkaid, expanded planet disk, and outer Guixu cleanly!
    followEntity = null;
-   targetPos.set(-14, 0, 4);
-   camPos = new THREE.Vector3(-18, 128, 232);
+   const shiftX = sp >= 1.35 ? -68 * (sp / 2.0) : -14;
+   targetPos.set(shiftX, 0, sp >= 1.35 ? 16 : 4);
+   camPos = new THREE.Vector3(shiftX - 18, Math.min(290, 142 * (0.55 + sp * 0.48)), Math.min(540, 265 * (0.55 + sp * 0.48)));
   }
-  camAnim = {
-   start: performance.now(),
-   dur: 720,
-   fromPos: camera.position.clone(),
-   toPos: camPos,
-   fromTarget: controls.target.clone(),
-   toTarget: targetPos
-  };
+  if (immediate) {
+   camAnim = null;
+   camera.position.copy(camPos);
+   controls.target.copy(targetPos);
+   controls.update();
+  } else {
+   camAnim = {
+    start: performance.now(),
+    dur: 720,
+    fromPos: camera.position.clone(),
+    toPos: camPos,
+    fromTarget: controls.target.clone(),
+    toTarget: targetPos
+   };
+  }
   updateCamBarUI();
  }
 
@@ -2924,8 +3472,58 @@ export function createCosmicSandbox({
   hoverValid: false,
   pulled: false,
   downX: 0,
-  downY: 0
+  downY: 0,
+  clientX: 0,
+  clientY: 0
  };
+
+ // Floating Live Aim / Launch Speed HUD Tooltip right next to cursor!
+ const aimHud = document.createElement('div');
+ aimHud.id = 'sb-aim-hud';
+ aimHud.hidden = true;
+ aimHud.innerHTML = '<strong id="sb-aim-spd">0 km/s</strong><span id="sb-aim-sub"></span>';
+ document.body.append(aimHud);
+
+ function updateAimHud(show, clientX, clientY, pos, vel, subjectKind, previewRes = null) {
+  if (!show || !active || !sim) {
+   aimHud.hidden = true;
+   return;
+  }
+  const attr = dominantAttractorNear(pos, drag.target || null, subjectKind);
+  const spd = vel.length();
+  const kmS = (spd * 6.5).toFixed(0);
+  let verdict = spd < 0.08 ? '静止放置' : '自由飞行';
+  let ratioLine = '';
+  let toneCls = 'cruise';
+
+  if (attr) {
+   const G = Math.abs(gUnit()) * pairGravityMult(subjectKind, attr.kind);
+   const r = Math.max(pos.distanceTo(attr.pos), attr.radius * 1.85 + 2.2);
+   const vCirc = Math.sqrt((G * attr.mass) / r);
+   const vEsc = vCirc * Math.SQRT2;
+   const vRel = vel.clone().sub(attr.vel).length();
+   const cRat = vCirc > 0.01 ? vRel / vCirc : 0;
+   const eRat = vEsc > 0.01 ? vRel / vEsc : 0;
+   if (previewRes?.dangerHit) { verdict = '坠落撞击'; toneCls = 'danger'; }
+   else if (previewRes?.isSlingshot) { verdict = '引力弹弓!'; toneCls = 'gold'; }
+   else if (spd < 0.08) { verdict = '静止放置'; toneCls = 'still'; }
+   else if (eRat >= 1.0) { verdict = '逃逸抛射'; toneCls = 'gold'; }
+   else if (Math.abs(cRat - 1) <= 0.16) { verdict = `环绕 ${attr.name} 圆轨`; toneCls = 'cruise'; }
+   else { verdict = `环绕 ${attr.name} 椭圆`; toneCls = 'cruise'; }
+   ratioLine = `${cRat.toFixed(2)}×圆轨 · ${eRat.toFixed(2)}×逃逸 · ${verdict}`;
+  } else {
+   ratioLine = verdict;
+  }
+
+  aimHud.hidden = false;
+  aimHud.dataset.tone = toneCls;
+  aimHud.querySelector('#sb-aim-spd').textContent = spd < 0.08 ? '0 km/s · 静止' : `${kmS} km/s`;
+  aimHud.querySelector('#sb-aim-sub').textContent = ratioLine;
+  const x = Math.min(innerWidth - 235, Math.max(12, clientX + 18));
+  const y = Math.min(innerHeight - 130, Math.max(18, clientY - 46));
+  aimHud.style.left = `${x.toFixed(0)}px`;
+  aimHud.style.top = `${y.toFixed(0)}px`;
+ }
 
  function pickSandboxEntity(clientX, clientY) {
   if (!active || !sim) return null;
@@ -2997,8 +3595,8 @@ export function createCosmicSandbox({
   arr.needsUpdate = true;
  }
 
- function updateTrajectoryPreview(startPos, startVel, excludeEntity = null, bodyRadius = 2.0) {
-  if (!sim) { previewLine.visible = false; return; }
+ function updateTrajectoryPreview(startPos, startVel, excludeEntity = null, bodyRadius = 2.0, subjectKind = 'planet') {
+  if (!sim) { previewLine.visible = false; return { dangerHit: false, isSlingshot: false, peakSpd: 0 }; }
   previewLine.visible = true;
   const G = gUnit();
   const pPos = startPos.clone();
@@ -3020,8 +3618,9 @@ export function createCosmicSandbox({
     const r2 = dx * dx + dy * dy + dz * dz;
     const dangerR = o.kind === 'bh' ? o.radius * 3.8 : (o.radius + bodyRadius) * 0.98;
     if (r2 < dangerR * dangerR) dangerHit = true;
-    const soft = (o.kind !== 'planet' && o.kind !== 'comet' && o.kind !== 'probe') ? (o.radius + bodyRadius) * 0.28 + 0.95 : 1.0;
-    const inv = (G * o.mass) / Math.pow(r2 + soft * soft, 1.5);
+    const soft = !isLightKind(o.kind) ? (o.radius + bodyRadius) * 0.28 + 0.95 : (o.radius + bodyRadius) * 0.20 + 0.35;
+    const pairG = G * pairGravityMult(subjectKind, o.kind);
+    const inv = (pairG * o.mass) / Math.pow(r2 + soft * soft, 1.5);
     ax += dx * inv; ay += dy * inv; az += dz * inv;
    }
    pVel.x += ax * stepH; pVel.y += ay * stepH; pVel.z += az * stepH;
@@ -3041,6 +3640,14 @@ export function createCosmicSandbox({
   }
   posArr.needsUpdate = true;
   colArr.needsUpdate = true;
+  return { dangerHit, isSlingshot, peakSpd };
+ }
+
+ function computePlannedSpawnVelocity(pos, def) {
+  if (spawnDrag.active && spawnDrag.pulled) return spawnDrag.launchVel.clone();
+  if (config.spawnMode === 'stationary') return new THREE.Vector3(0, 0, 0);
+  const attr = dominantAttractorNear(pos, null, def.kind);
+  return circularVelocityAround(pos, attr, def.kind, config.spawnRetrograde);
  }
 
  function updateInteractiveGuides() {
@@ -3089,18 +3696,27 @@ export function createCosmicSandbox({
    spawnStem.visible = false;
   }
 
-  // Trajectory preview & aim arrow
+  // Trajectory preview, aim arrow & Live Cursor Velocity HUD!
   if (active && spawnDrag.active) {
    const def = SPAWN_CATALOG.find(c => c.id === config.spawnType) || SPAWN_CATALOG[0];
-   const vel = spawnDrag.pulled ? spawnDrag.launchVel : circularVelocityAround(spawnDrag.anchorPos, dominantAttractorNear(spawnDrag.anchorPos));
+   const vel = computePlannedSpawnVelocity(spawnDrag.anchorPos, def);
    updateAimArrow(spawnDrag.anchorPos, vel);
-   updateTrajectoryPreview(spawnDrag.anchorPos, vel, null, def.radius);
+   const res = updateTrajectoryPreview(spawnDrag.anchorPos, vel, null, def.radius, def.kind);
+   updateAimHud(true, spawnDrag.clientX, spawnDrag.clientY, spawnDrag.anchorPos, vel, def.kind, res);
+  } else if (active && config.tool === 'spawn' && spawnDrag.hoverValid) {
+   const def = SPAWN_CATALOG.find(c => c.id === config.spawnType) || SPAWN_CATALOG[0];
+   const vel = computePlannedSpawnVelocity(spawnDrag.hoverPos, def);
+   updateAimArrow(spawnDrag.hoverPos, vel);
+   const res = updateTrajectoryPreview(spawnDrag.hoverPos, vel, null, def.radius, def.kind);
+   updateAimHud(true, spawnDrag.clientX, spawnDrag.clientY, spawnDrag.hoverPos, vel, def.kind, res);
   } else if (active && drag.target && drag.target.alive) {
    updateAimArrow(drag.target.pos, drag.throwVel);
-   updateTrajectoryPreview(drag.target.pos, drag.throwVel, drag.target, drag.target.radius);
+   const res = updateTrajectoryPreview(drag.target.pos, drag.throwVel, drag.target, drag.target.radius, drag.target.kind);
+   updateAimHud(true, spawnDrag.clientX, spawnDrag.clientY, drag.target.pos, drag.throwVel, drag.target.kind, res);
   } else {
    aimArrow.visible = false;
    previewLine.visible = false;
+   aimHud.hidden = true;
   }
  }
 
@@ -3141,6 +3757,8 @@ export function createCosmicSandbox({
    spawnDrag.pulled = false;
    spawnDrag.downX = e.clientX;
    spawnDrag.downY = e.clientY;
+   spawnDrag.clientX = e.clientX;
+   spawnDrag.clientY = e.clientY;
    controls.enabled = false;
    renderer.domElement.style.cursor = 'crosshair';
    try { renderer.domElement.setPointerCapture(e.pointerId); } catch {}
@@ -3175,6 +3793,8 @@ export function createCosmicSandbox({
 
  function onPointerMove(e) {
   if (!active || !sim) return;
+  spawnDrag.clientX = e.clientX;
+  spawnDrag.clientY = e.clientY;
 
   if (spawnDrag.active) {
    const distPx = Math.hypot(e.clientX - spawnDrag.downX, e.clientY - spawnDrag.downY);
@@ -3182,7 +3802,7 @@ export function createCosmicSandbox({
     spawnDrag.pulled = true;
     // Pull back like a slingshot -> shoot forward!
     spawnDrag.launchVel.copy(spawnDrag.anchorPos).sub(planeHit).multiplyScalar(0.58);
-    if (spawnDrag.launchVel.length() > 48) spawnDrag.launchVel.setLength(48);
+    if (spawnDrag.launchVel.length() > 64) spawnDrag.launchVel.setLength(64);
    } else {
     spawnDrag.pulled = false;
     spawnDrag.launchVel.set(0, 0, 0);
@@ -3206,7 +3826,7 @@ export function createCosmicSandbox({
   }
 
   if (config.tool === 'spawn') {
-   spawnDrag.hoverValid = rayToPlane(e.clientX, e.clientY, config.spawnY, spawnDrag.hoverPos);
+   spawnDrag.hoverValid = e.target === renderer.domElement && rayToPlane(e.clientX, e.clientY, config.spawnY, spawnDrag.hoverPos);
    drag.hovered = null;
    renderer.domElement.style.cursor = 'crosshair';
    return;
@@ -3228,10 +3848,13 @@ export function createCosmicSandbox({
    try { renderer.domElement.releasePointerCapture(e.pointerId); } catch {}
    const anchor = spawnDrag.anchorPos.clone();
    const vel = spawnDrag.pulled ? spawnDrag.launchVel.clone() : null;
+   const opts = spawnDrag.pulled
+    ? {}
+    : { stationary: config.spawnMode === 'stationary', retrograde: config.spawnRetrograde };
    spawnDrag.active = false;
    spawnDrag.pointerId = null;
    controls.enabled = true;
-   const spawned = spawnBody(config.spawnType, anchor, vel);
+   const spawned = spawnBody(config.spawnType, anchor, vel, opts);
    if (spawned) selectEntity(spawned);
    return;
   }
@@ -3373,10 +3996,10 @@ export function createCosmicSandbox({
   }
  }
 
- // Floating Selected-Body Inspector Card (Left-middle)
+ // Floating Selected-Body Inspector Card (Left-middle) — High-Visual-Payoff Parameters
  const inspector = document.createElement('aside');
  inspector.id = 'sb-inspector';
- inspector.setAttribute('aria-label', '天体微调面板');
+ inspector.setAttribute('aria-label', '天体属性调控面板');
  inspector.hidden = true;
  inspector.innerHTML = `
   <div class="sb-insp-head">
@@ -3385,20 +4008,48 @@ export function createCosmicSandbox({
     <strong id="sb-insp-name"></strong>
     <small id="sb-insp-kind"></small>
    </div>
+   <span id="sb-insp-orbit-pill" class="sb-insp-pill">近圆轨道</span>
    <button id="sb-insp-close" type="button" class="sb-insp-close" aria-label="关闭面板">×</button>
   </div>
   <div class="sb-insp-metrics">
-   <div><span>实时速率</span><strong id="sb-insp-spd">0 km/s</strong></div>
-   <div><span>当前质量</span><strong id="sb-insp-mass-val">0 M☉</strong></div>
+   <div><span>公转速率</span><strong id="sb-insp-spd">0 km/s</strong></div>
+   <div><span>表面逃逸速度</span><strong id="sb-insp-vesc">0 km/s</strong></div>
+   <div><span>离心自转比</span><strong id="sb-insp-spin-ratio">0%</strong></div>
+   <div><span>偏心率 / 希尔球</span><strong id="sb-insp-ecc">e=0.00</strong></div>
   </div>
-  <label class="sb-insp-slider" for="sb-insp-mass">
-   <span>调整质量 <em id="sb-insp-thresh"></em></span>
-   <input id="sb-insp-mass" type="range" min="0.02" max="24" step="0.05" value="1">
-  </label>
+  <div class="sb-insp-sliders">
+   <label class="sb-insp-slider" for="sb-insp-mass">
+    <span>质量 <output id="sb-insp-mass-val">0 M☉</output><em id="sb-insp-thresh"></em></span>
+    <input id="sb-insp-mass" type="range" min="0.02" max="24" step="0.05" value="1">
+   </label>
+   <label class="sb-insp-slider" for="sb-insp-radius" id="sb-insp-radius-row">
+    <span>半径 <output id="sb-insp-radius-val">2.0</output><em>联动逃逸/洛希</em></span>
+    <input id="sb-insp-radius" type="range" min="0.6" max="9" step="0.1" value="2">
+   </label>
+   <div class="sb-insp-slider">
+    <span>公转速度 <output id="sb-insp-speed-out">0 km/s</output></span>
+    <input id="sb-insp-speed" type="range" min="0" max="60" step="0.2" value="10">
+    <div class="sb-insp-mini-row">
+     <button id="sb-insp-stop" type="button" class="sb-insp-mini" title="立即将速度归零，静止悬浮">静止 0</button>
+     <button id="sb-insp-circ" type="button" class="sb-insp-mini" title="按最近主引力源自动配成精准圆轨">精准圆轨</button>
+     <button id="sb-insp-rev" type="button" class="sb-insp-mini" title="公转方向 180° 反向逆行">逆行反转</button>
+    </div>
+   </div>
+   <label class="sb-insp-slider" for="sb-insp-spin" id="sb-insp-spin-row">
+    <span>自转速度 <output id="sb-insp-spin-val">0.20</output><em id="sb-insp-spin-warn">超 100% 离心解体</em></span>
+    <input id="sb-insp-spin" type="range" min="0" max="2.2" step="0.02" value="0.2">
+   </label>
+   <label class="sb-insp-slider" for="sb-insp-temp" id="sb-insp-temp-row">
+    <span>表面温度 <output id="sb-insp-temp-val">280 K</output><em id="sb-insp-temp-state">温带</em></span>
+    <input id="sb-insp-temp" type="range" min="40" max="4200" step="20" value="280">
+   </label>
+  </div>
+  <div class="sb-insp-locks">
+   <button id="sb-insp-nobreakup" type="button" class="sb-insp-lock" aria-pressed="false" title="开启后免疫自转解体、洛希撕裂与撞击粉碎">🔒 不解体</button>
+   <button id="sb-insp-pin" type="button" class="sb-insp-lock" aria-pressed="false" title="钉死在空间坐标不动，专作引力桩或弹弓支点">📌 空间锚定</button>
+  </div>
   <div class="sb-insp-actions">
    <button id="sb-insp-follow" type="button" class="sb-insp-btn">◎ 追踪</button>
-   <button id="sb-insp-boost" type="button" class="sb-insp-btn">⚡ +35%</button>
-   <button id="sb-insp-brake" type="button" class="sb-insp-btn">▽ -35%</button>
    <button id="sb-insp-detonate" type="button" class="sb-insp-btn sb-insp-danger">💥 引爆</button>
    <button id="sb-insp-delete" type="button" class="sb-insp-btn">✕ 删除</button>
   </div>
@@ -3410,11 +4061,20 @@ export function createCosmicSandbox({
   if (!selectedEntity?.alive) return;
   followBody(followEntity === selectedEntity ? null : selectedEntity);
  };
- inspector.querySelector('#sb-insp-boost').onclick = () => {
-  if (selectedEntity?.alive) boostEntity(selectedEntity.id, 1.35);
+ inspector.querySelector('#sb-insp-stop').onclick = () => {
+  if (selectedEntity?.alive) setEntityStationary(selectedEntity.id);
  };
- inspector.querySelector('#sb-insp-brake').onclick = () => {
-  if (selectedEntity?.alive) boostEntity(selectedEntity.id, 0.65);
+ inspector.querySelector('#sb-insp-circ').onclick = () => {
+  if (selectedEntity?.alive) setEntityCircularOrbit(selectedEntity.id);
+ };
+ inspector.querySelector('#sb-insp-rev').onclick = () => {
+  if (selectedEntity?.alive) reverseEntityOrbit(selectedEntity.id);
+ };
+ inspector.querySelector('#sb-insp-nobreakup').onclick = () => {
+  if (selectedEntity?.alive) setEntityNoBreakup(selectedEntity.id, !selectedEntity.noBreakup);
+ };
+ inspector.querySelector('#sb-insp-pin').onclick = () => {
+  if (selectedEntity?.alive) setEntityPinned(selectedEntity.id, !selectedEntity.pinned);
  };
  inspector.querySelector('#sb-insp-detonate').onclick = () => {
   if (selectedEntity?.alive) detonateBody(selectedEntity.id);
@@ -3422,8 +4082,24 @@ export function createCosmicSandbox({
  inspector.querySelector('#sb-insp-delete').onclick = () => {
   if (selectedEntity?.alive) deleteEntity(selectedEntity.id);
  };
- inspector.querySelector('#sb-insp-mass').oninput = e => {
-  if (selectedEntity?.alive) setEntityMass(selectedEntity.id, Number(e.target.value));
+ inspector.querySelector('#sb-insp-mass').oninput = ev => {
+  if (selectedEntity?.alive) setEntityMass(selectedEntity.id, Number(ev.target.value));
+ };
+ inspector.querySelector('#sb-insp-radius').oninput = ev => {
+  if (selectedEntity?.alive) setEntityRadius(selectedEntity.id, Number(ev.target.value));
+ };
+ inspector.querySelector('#sb-insp-speed').oninput = ev => {
+  if (selectedEntity?.alive) setEntitySpeed(selectedEntity.id, Number(ev.target.value));
+ };
+ inspector.querySelector('#sb-insp-spin').oninput = ev => {
+  if (!selectedEntity?.alive) return;
+  const crit = criticalSpinFor(selectedEntity);
+  const ratio = Number(ev.target.value);
+  const targetSpin = Number.isFinite(crit) ? crit * ratio : 0;
+  setEntitySpin(selectedEntity.id, targetSpin);
+ };
+ inspector.querySelector('#sb-insp-temp').oninput = ev => {
+  if (selectedEntity?.alive) setEntityTemp(selectedEntity.id, Number(ev.target.value));
  };
 
  function updateInspectorUI() {
@@ -3437,33 +4113,123 @@ export function createCosmicSandbox({
   inspector.querySelector('#sb-insp-name').textContent = e.name;
   inspector.querySelector('#sb-insp-kind').textContent = kindLabel(e);
 
-  const kmS = (e.vel.length() * 6.5).toFixed(0);
-  const mult = e.baseSpeed > 0.5 ? (e.vel.length() / e.baseSpeed) : 1;
+  const tel = computeOrbitTelemetry(e);
+  const orbitPill = inspector.querySelector('#sb-insp-orbit-pill');
+  orbitPill.textContent = tel?.label || '自由';
+  orbitPill.dataset.state = e.pinned ? 'pinned' : (tel?.ecc >= 0.99 ? 'escape' : tel?.speed < 0.25 ? 'still' : 'bound');
+
+  const spd = e.vel.length();
+  const kmS = (spd * 6.5).toFixed(0);
+  const mult = e.baseSpeed > 0.5 ? (spd / e.baseSpeed) : 1;
   inspector.querySelector('#sb-insp-spd').textContent = e.kind === 'probe' && mult > 1.2
    ? `${kmS} km/s (${mult.toFixed(1)}×)`
    : `${kmS} km/s`;
-  inspector.querySelector('#sb-insp-mass-val').textContent = e.mass >= 1 ? `${e.mass.toFixed(1)} M☉` : e.mass >= 0.01 ? `${e.mass.toFixed(2)} M☉` : `${e.mass.toFixed(3)} M☉`;
 
-  const slider = inspector.querySelector('#sb-insp-mass');
+  const vEsc = escapeVelocityFor(e);
+  inspector.querySelector('#sb-insp-vesc').textContent = e.kind === 'bh'
+   ? 'c · 视界'
+   : `${(vEsc * 6.5).toFixed(1)} km/s`;
+
+  const crit = criticalSpinFor(e);
+  const spinRatio = Number.isFinite(crit) ? Math.abs(e.spinRate || 0) / Math.max(crit, 0.05) : 0;
+  const spinRatioEl = inspector.querySelector('#sb-insp-spin-ratio');
+  spinRatioEl.textContent = Number.isFinite(crit) ? `${Math.round(spinRatio * 100)}%` : '克尔奇点';
+  spinRatioEl.dataset.warn = spinRatio >= 1.0 ? 'crit' : spinRatio >= 0.78 ? 'hot' : '';
+
+  const eccText = tel?.attr
+   ? `e=${tel.ecc.toFixed(2)} · 希尔 ${tel.hillR.toFixed(1)}`
+   : '无主引力源';
+  inspector.querySelector('#sb-insp-ecc').textContent = eccText;
+
+  // Mass slider
+  inspector.querySelector('#sb-insp-mass-val').textContent = e.mass >= 1 ? `${e.mass.toFixed(2)} M☉` : e.mass >= 0.01 ? `${e.mass.toFixed(3)} M☉` : `${e.mass.toFixed(4)} M☉`;
+  const massSlider = inspector.querySelector('#sb-insp-mass');
   const thresh = inspector.querySelector('#sb-insp-thresh');
-  if (e.kind === 'planet' || e.kind === 'comet') {
-   slider.min = '0.02'; slider.max = '2.0'; slider.step = '0.02';
-   thresh.textContent = '≥1.8 M☉ 点燃成星';
+  if (e.kind === 'planet' || e.kind === 'moon' || e.kind === 'comet') {
+   massSlider.min = '0.005'; massSlider.max = '2.0'; massSlider.step = '0.01';
+   thresh.textContent = '≥1.8 点燃成星';
+  } else if (e.kind === 'white-dwarf') {
+   massSlider.min = '0.4'; massSlider.max = '1.55'; massSlider.step = '0.02';
+   thresh.textContent = '≥1.44 Ia超新星';
   } else if (e.kind === 'star') {
-   slider.min = '1.0'; slider.max = '22.0'; slider.step = '0.2';
-   thresh.textContent = '≥20 M☉ 坍缩黑洞';
+   massSlider.min = '1.0'; massSlider.max = '22.0'; massSlider.step = '0.2';
+   thresh.textContent = '≥20 坍缩黑洞';
   } else if (e.kind === 'bh') {
-   slider.min = '2.0'; slider.max = '60.0'; slider.step = '0.5';
+   massSlider.min = '2.0'; massSlider.max = '60.0'; massSlider.step = '0.5';
    thresh.textContent = '扩张洛希极限';
   } else if (e.kind === 'neutron') {
-   slider.min = '1.2'; slider.max = '6.0'; slider.step = '0.1';
+   massSlider.min = '1.2'; massSlider.max = '6.0'; massSlider.step = '0.1';
    thresh.textContent = '致密脉冲核心';
   } else {
-   slider.min = '0.001'; slider.max = '0.2'; slider.step = '0.005';
+   massSlider.min = '0.001'; massSlider.max = '0.2'; massSlider.step = '0.005';
    thresh.textContent = '超轻弹弓载荷';
   }
-  slider.value = String(Math.min(Number(slider.max), Math.max(Number(slider.min), e.mass)));
-  setRangePct(slider);
+  if (document.activeElement !== massSlider) {
+   massSlider.value = String(Math.min(Number(massSlider.max), Math.max(Number(massSlider.min), e.mass)));
+  }
+  setRangePct(massSlider);
+
+  // Radius slider
+  const radRow = inspector.querySelector('#sb-insp-radius-row');
+  const radSlider = inspector.querySelector('#sb-insp-radius');
+  radRow.hidden = e.kind === 'probe';
+  if (!radRow.hidden) {
+   radSlider.min = e.kind === 'bh' ? '0.8' : '0.6';
+   radSlider.max = e.kind === 'star' ? '10.0' : '8.0';
+   if (document.activeElement !== radSlider) {
+    radSlider.value = String(Math.min(Number(radSlider.max), Math.max(Number(radSlider.min), e.targetRadius)));
+   }
+   inspector.querySelector('#sb-insp-radius-val').textContent = `${e.radius.toFixed(2)} R`;
+   setRangePct(radSlider);
+  }
+
+  // Orbital Speed slider
+  const spdSlider = inspector.querySelector('#sb-insp-speed');
+  if (document.activeElement !== spdSlider) {
+   spdSlider.value = String(Math.min(60, Math.max(0, spd)));
+  }
+  inspector.querySelector('#sb-insp-speed-out').textContent = `${kmS} km/s`;
+  setRangePct(spdSlider);
+
+  // Spin Speed slider (as fraction of critical breakup velocity, 0..2.2x!)
+  const spinRow = inspector.querySelector('#sb-insp-spin-row');
+  const spinSlider = inspector.querySelector('#sb-insp-spin');
+  spinRow.hidden = e.kind === 'bh' || e.kind === 'probe';
+  if (!spinRow.hidden) {
+   if (document.activeElement !== spinSlider) {
+    spinSlider.value = String(Math.min(2.2, Math.max(0, spinRatio)));
+   }
+   inspector.querySelector('#sb-insp-spin-val').textContent = `${Math.round(spinRatio * 100)}% ω_c`;
+   const warnEl = inspector.querySelector('#sb-insp-spin-warn');
+   if (spinRatio >= 1.0) {
+    warnEl.textContent = (!config.allowBreakup || e.noBreakup) ? '超临界(锁保护)' : '超临界解体中!';
+   } else {
+    warnEl.textContent = '≥100% 离心解体';
+   }
+   setRangePct(spinSlider);
+  }
+
+  // Temperature slider (for planets / moons / comets / brown dwarfs)
+  const tempRow = inspector.querySelector('#sb-insp-temp-row');
+  const tempSlider = inspector.querySelector('#sb-insp-temp');
+  tempRow.hidden = !isLightKind(e.kind) || e.kind === 'probe';
+  if (!tempRow.hidden) {
+   const T = Math.round(e.temperature || 280);
+   if (document.activeElement !== tempSlider) {
+    tempSlider.value = String(Math.min(4200, Math.max(40, T)));
+   }
+   inspector.querySelector('#sb-insp-temp-val').textContent = `${T} K`;
+   inspector.querySelector('#sb-insp-temp-state').textContent = T < 180 ? '极寒冰霜' : T < 950 ? '温和态' : T < 2550 ? '熔岩红热' : '炽烈蒸发尾!';
+   setRangePct(tempSlider);
+  }
+
+  // Per-body protection locks
+  const noBreakBtn = inspector.querySelector('#sb-insp-nobreakup');
+  noBreakBtn.setAttribute('aria-pressed', String(!!e.noBreakup));
+  noBreakBtn.textContent = e.noBreakup ? '🔒 不解体(已锁)' : '🔒 不解体';
+  const pinBtn = inspector.querySelector('#sb-insp-pin');
+  pinBtn.setAttribute('aria-pressed', String(!!e.pinned));
+  pinBtn.textContent = e.pinned ? '📌 已钉死' : '📌 空间锚定';
 
   const followBtn = inspector.querySelector('#sb-insp-follow');
   followBtn.textContent = followEntity === e ? '◉ 追踪中' : '◎ 追踪';
@@ -3471,7 +4237,7 @@ export function createCosmicSandbox({
 
   const detBtn = inspector.querySelector('#sb-insp-detonate');
   detBtn.hidden = e.kind === 'bh';
-  detBtn.textContent = e.kind === 'star' ? '💥 超新星' : e.kind === 'neutron' ? '💥 磁星爆' : '💥 引爆';
+  detBtn.textContent = e.kind === 'white-dwarf' ? '💥 Ia爆发' : e.kind === 'star' ? '💥 超新星' : e.kind === 'neutron' ? '💥 磁星爆' : '💥 引爆';
  }
 
  // Bottom Floating Sandbox Instrument Dock
@@ -3490,6 +4256,43 @@ export function createCosmicSandbox({
  ).join('');
 
  dock.innerHTML = `
+  <div id="sb-laws-bar" class="sb-laws-bar" hidden>
+   <div class="sb-laws-grid">
+    <label class="sb-slider" for="sb-gravity">
+     <span>万有引力 <output id="sb-gravity-out">1.0×</output></span>
+     <input id="sb-gravity" type="range" min="-2" max="5" step="0.1" value="1">
+    </label>
+    <label class="sb-slider" for="sb-planet-grav" title="专门增强行星/卫星之间的局部引力，轻松实现卫星捕获与双星互绕">
+     <span>行星互引 <output id="sb-planet-grav-out">3.0×</output></span>
+     <input id="sb-planet-grav" type="range" min="1" max="25" step="0.5" value="3">
+    </label>
+    <label class="sb-slider" for="sb-spread" title="实时舒展或收紧整个星系的轨道间距">
+     <span>轨道间距 <output id="sb-spread-out">2.0×</output></span>
+     <input id="sb-spread" type="range" min="0.6" max="3.0" step="0.05" value="2.0">
+    </label>
+    <label class="sb-slider" for="sb-drag" title="星际介质轨道阻力，打开后天体沿螺旋线缓慢吸积坠落">
+     <span>轨道阻尼 <output id="sb-drag-out">0%</output></span>
+     <input id="sb-drag" type="range" min="0" max="100" step="2" value="0">
+    </label>
+    <label class="sb-slider" for="sb-bh-mass">
+     <span>归墟质量 <output id="sb-bh-mass-out">12.4 M☉</output></span>
+     <input id="sb-bh-mass" type="range" min="2" max="60" step="0.5" value="12.4">
+    </label>
+   </div>
+   <div class="sb-laws-row">
+    <span class="sb-drawer-label">碰撞法则</span>
+    <div class="sb-laws-seg" role="group" aria-label="碰撞物理模式">
+     <button type="button" class="sb-law-chip" data-colmode="realistic" aria-pressed="true" title="写实演化：熔融合并 + 超高速粉碎 + 灾变爆发">写实演化</button>
+     <button type="button" class="sb-law-chip" data-colmode="accrete" aria-pressed="false" title="温和吸积：抑制粉碎，撞击总是聚合成更大天体">温和吸积</button>
+     <button type="button" class="sb-law-chip" data-colmode="elastic" aria-pressed="false" title="弹性台球：行星与卫星碰撞时动量反弹不毁灭">弹性台球</button>
+    </div>
+    <button id="sb-breakup-btn" type="button" class="sb-law-chip sb-law-breakup" aria-pressed="true" title="关闭后所有天体免疫超临界自转解体、洛希撕裂与撞击粉碎">临界解体：开</button>
+    <div class="sb-laws-snap">
+     <button id="sb-snap-save" type="button" class="sb-law-chip" title="保存当前全部天体位置、速度与参数快照">📷 保存快照</button>
+     <button id="sb-snap-load" type="button" class="sb-law-chip" disabled title="一键回到上次保存的阵型快照">↺ 回滚快照</button>
+    </div>
+   </div>
+  </div>
   <div id="sb-scenario-bar" class="sb-scenario-bar" hidden>
    <div class="sb-scen-row">
     <span class="sb-drawer-label">宇宙剧本</span>
@@ -3503,11 +4306,19 @@ export function createCosmicSandbox({
   </div>
   <div id="sb-spawn-bar" class="sb-spawn-bar" hidden>
    <div class="sb-spawn-list" role="group" aria-label="选择要创建的天体">${spawnChipsHtml}</div>
-   <div class="sb-spawn-y" title="按住 Alt+滚轮也可随时调整 3D 投放高度 Y">
-    <span>高度 Y</span>
-    <button id="sb-y-down" type="button" class="sb-y-btn" aria-label="降低高度">−</button>
-    <output id="sb-y-out">0</output>
-    <button id="sb-y-up" type="button" class="sb-y-btn" aria-label="升高高度">+</button>
+   <div class="sb-spawn-opts">
+    <div class="sb-spawn-modes" role="group" aria-label="投放初速模式">
+     <button type="button" class="sb-mode-chip" data-spawnmode="stationary" aria-pressed="false" title="单击绝对静止放置 (0 km/s)">静止 0</button>
+     <button type="button" class="sb-mode-chip" data-spawnmode="orbit" aria-pressed="true" title="单击自动环绕最近引力源（含大行星）成精准圆轨">自动入轨</button>
+     <button type="button" class="sb-mode-chip" data-spawnmode="slingshot" aria-pressed="false" title="按住向后拉弓，实时看速度与逃逸比标尺发射">拉弓发射</button>
+    </div>
+    <button id="sb-retro-btn" type="button" class="sb-mode-chip" aria-pressed="false" title="切换自动入轨的顺行 / 逆行方向">顺行</button>
+    <div class="sb-spawn-y" title="按住 Alt+滚轮也可随时调整 3D 投放高度 Y">
+     <span>高度 Y</span>
+     <button id="sb-y-down" type="button" class="sb-y-btn" aria-label="降低高度">−</button>
+     <output id="sb-y-out">0</output>
+     <button id="sb-y-up" type="button" class="sb-y-btn" aria-label="升高高度">+</button>
+    </div>
    </div>
   </div>
   <div id="sb-telemetry" class="sb-telemetry" hidden>
@@ -3516,32 +4327,28 @@ export function createCosmicSandbox({
    <span class="sb-tel-item"><small>潮汐撕裂</small><strong id="sb-tde">0</strong></span>
    <span class="sb-tel-item"><small>大撞击</small><strong id="sb-impacts">0</strong></span>
    <span class="sb-tel-item"><small>活跃碎片</small><strong id="sb-debris">0</strong></span>
-   <span class="sb-tel-item sb-tel-wide"><small>最近事件</small><strong id="sb-last">双星实时互引中</strong></span>
+   <span class="sb-tel-item sb-tel-wide"><small>最近事件</small><strong id="sb-last">宽间距稳态 N-Body 互引中</strong></span>
   </div>
   <div class="sb-bar">
    <div class="sb-group sb-mode-group" role="group" aria-label="交互工具">
     <button type="button" class="sb-pill" data-tool="orbit" aria-pressed="true" title="自由旋转平移视角 · 单击选天体微调，双击锁定追踪">探索</button>
-    <button type="button" class="sb-pill" data-tool="spawn" aria-pressed="false" title="创建行星/恒星/脉冲星/黑洞/探测器：单击圆轨生成，拖拽拉弓发射">✦ 造物发射</button>
+    <button type="button" class="sb-pill" data-tool="spawn" aria-pressed="false" title="创建冰月/行星/褐矮/白矮/恒星/脉冲星/黑洞/探测器：支持静止放置、自动配月或拉弓发射">✦ 造物</button>
     <button type="button" class="sb-pill" data-tool="grab" aria-pressed="false" title="直接拎起黑洞、恒星或行星甩动对撞（也可按住 Shift 抓取）">抓取</button>
-    <button id="sb-scenario-btn" type="button" class="sb-pill sb-scen-toggle" aria-pressed="false" title="一键加载三体/双黑洞/弹弓/超新星剧本，随时释放天象与查看彩蛋">✦ 剧本/天象</button>
+    <button id="sb-scenario-btn" type="button" class="sb-pill sb-scen-toggle" aria-pressed="false" title="一键加载三体/双黑洞/弹弓/超新星剧本，随时释放天象与查看彩蛋">✦ 剧本</button>
+    <button id="sb-laws-btn" type="button" class="sb-pill sb-laws-toggle" aria-pressed="false" title="调节引力、行星互引倍率、轨道间距、阻尼、碰撞法则、临界解体与阵型快照">⚙ 法则</button>
    </div>
    <div class="sb-divider" aria-hidden="true"></div>
-   <div class="sb-group sb-speed-group" role="group" aria-label="时间流速">
+   <div class="sb-group sb-speed-group" role="group" aria-label="时间流速 0.05x-100x">
     <button type="button" class="sb-pill" data-speed="0" aria-pressed="false" title="暂停演化（空格键）">Ⅱ</button>
-    <button type="button" class="sb-pill" data-speed="0.15" aria-pressed="false">0.15×</button>
-    <button type="button" class="sb-pill" data-speed="0.5" aria-pressed="false">0.5×</button>
+    <button type="button" class="sb-pill" data-speed="0.1" aria-pressed="false">0.1×</button>
     <button type="button" class="sb-pill" data-speed="1" aria-pressed="true">1×</button>
-    <button type="button" class="sb-pill" data-speed="2.5" aria-pressed="false">2.5×</button>
+    <button type="button" class="sb-pill" data-speed="10" aria-pressed="false">10×</button>
+    <button type="button" class="sb-pill" data-speed="100" aria-pressed="false">100×</button>
+    <label class="sb-speed-slider" for="sb-speed-slider" title="无级对数时间倍率：最慢 0.05×，最快 100×">
+     <input id="sb-speed-slider" type="range" min="0" max="100" step="0.5" value="39.4">
+     <output id="sb-speed-out">1×</output>
+    </label>
    </div>
-   <div class="sb-divider" aria-hidden="true"></div>
-   <label class="sb-slider" for="sb-bh-mass">
-    <span>归墟质量 <output id="sb-bh-mass-out">12.4 M☉</output></span>
-    <input id="sb-bh-mass" type="range" min="2" max="45" step="0.5" value="12.4">
-   </label>
-   <label class="sb-slider" for="sb-gravity">
-    <span>引力倍率 <output id="sb-gravity-out">1.0×</output></span>
-    <input id="sb-gravity" type="range" min="-2" max="3" step="0.1" value="1">
-   </label>
    <div class="sb-divider" aria-hidden="true"></div>
    <div class="sb-group sb-toggles">
     <button id="sb-bullet-btn" type="button" class="sb-chip" aria-pressed="true" title="大爆炸/碰撞瞬间自动触发慢动作">子弹时间</button>
@@ -3550,7 +4357,7 @@ export function createCosmicSandbox({
    <div class="sb-divider" aria-hidden="true"></div>
    <div class="sb-group sb-actions">
     <button id="sb-reset-btn" type="button" class="sb-act" title="恢复完整六星、瑶光与归墟">↺ 重置</button>
-    <button id="sb-exit-btn" type="button" class="sb-act sb-exit" title="退出沙盒，返回观星展示模式">退出沙盒</button>
+    <button id="sb-exit-btn" type="button" class="sb-act sb-exit" title="退出沙盒，返回观星展示模式">退出</button>
    </div>
   </div>
   <p id="sb-hint" class="sb-hint"></p>
@@ -3564,7 +4371,7 @@ export function createCosmicSandbox({
 
  function syncBhMassSliderBounds() {
   const massEl = dock.querySelector('#sb-bh-mass');
-  const maxNow = Math.max(45, Math.ceil(config.bhMass / 5) * 5 + 10);
+  const maxNow = Math.max(60, Math.ceil(config.bhMass / 5) * 5 + 10);
   massEl.max = String(Math.min(100, maxNow));
  }
 
@@ -3575,16 +4382,39 @@ export function createCosmicSandbox({
   for (const btn of dock.querySelectorAll('[data-spawn]')) {
    btn.setAttribute('aria-pressed', String(btn.dataset.spawn === config.spawnType));
   }
+  for (const btn of dock.querySelectorAll('[data-spawnmode]')) {
+   btn.setAttribute('aria-pressed', String(btn.dataset.spawnmode === config.spawnMode));
+  }
   for (const btn of dock.querySelectorAll('[data-scenario]')) {
    btn.setAttribute('aria-pressed', String(btn.dataset.scenario === config.scenario));
   }
-  for (const btn of dock.querySelectorAll('[data-speed]')) {
-   btn.setAttribute('aria-pressed', String(Number(btn.dataset.speed) === config.timeScale));
+  for (const btn of dock.querySelectorAll('[data-colmode]')) {
+   btn.setAttribute('aria-pressed', String(btn.dataset.colmode === config.collisionMode));
   }
+  for (const btn of dock.querySelectorAll('[data-speed]')) {
+   const targetS = Number(btn.dataset.speed);
+   const match = targetS === 0 ? config.timeScale === 0 : Math.abs(config.timeScale - targetS) < Math.max(0.02, targetS * 0.04);
+   btn.setAttribute('aria-pressed', String(match));
+  }
+
+  const speedEl = dock.querySelector('#sb-speed-slider');
+  if (document.activeElement !== speedEl) {
+   speedEl.value = String(config.timeScale > 0 ? speedToSlider(config.timeScale) : 0);
+  }
+  dock.querySelector('#sb-speed-out').textContent = formatSpeedMult(config.timeScale);
+  setRangePct(speedEl);
+
   dock.querySelector('#sb-scenario-btn').setAttribute('aria-pressed', String(config.showScenarios));
+  dock.querySelector('#sb-laws-btn').setAttribute('aria-pressed', String(config.showLaws));
   dock.querySelector('#sb-scenario-bar').hidden = !config.showScenarios;
-  dock.querySelector('#sb-spawn-bar').hidden = config.tool !== 'spawn' || config.showScenarios;
+  dock.querySelector('#sb-laws-bar').hidden = !config.showLaws;
+  dock.querySelector('#sb-spawn-bar').hidden = config.tool !== 'spawn' || config.showScenarios || config.showLaws;
   dock.querySelector('#sb-y-out').textContent = config.spawnY === 0 ? '0' : (config.spawnY > 0 ? `+${config.spawnY}` : String(config.spawnY));
+
+  const retroBtn = dock.querySelector('#sb-retro-btn');
+  retroBtn.setAttribute('aria-pressed', String(config.spawnRetrograde));
+  retroBtn.textContent = config.spawnRetrograde ? '逆行' : '顺行';
+  retroBtn.hidden = config.spawnMode === 'stationary';
 
   const eggBadge = dock.querySelector('#sb-egg-badge');
   eggBadge.textContent = `★ 彩蛋 ${unlockedEggs.size} / ${SANDBOX_EGGS.length}`;
@@ -3593,12 +4423,12 @@ export function createCosmicSandbox({
 
   const massEl = dock.querySelector('#sb-bh-mass');
   syncBhMassSliderBounds();
-  massEl.value = config.bhMass;
+  if (document.activeElement !== massEl) massEl.value = config.bhMass;
   dock.querySelector('#sb-bh-mass-out').textContent = `${config.bhMass.toFixed(1)} M☉`;
   setRangePct(massEl);
 
   const gravEl = dock.querySelector('#sb-gravity');
-  gravEl.value = config.gravityScale;
+  if (document.activeElement !== gravEl) gravEl.value = config.gravityScale;
   const gOut = config.gravityScale < -0.05
    ? `${config.gravityScale.toFixed(1)}× 斥力`
    : Math.abs(config.gravityScale) <= 0.05
@@ -3606,6 +4436,28 @@ export function createCosmicSandbox({
     : `${config.gravityScale.toFixed(1)}×`;
   dock.querySelector('#sb-gravity-out').textContent = gOut;
   setRangePct(gravEl);
+
+  const pGravEl = dock.querySelector('#sb-planet-grav');
+  if (document.activeElement !== pGravEl) pGravEl.value = config.planetGravityBoost;
+  dock.querySelector('#sb-planet-grav-out').textContent = `${config.planetGravityBoost.toFixed(1)}×`;
+  setRangePct(pGravEl);
+
+  const spreadEl = dock.querySelector('#sb-spread');
+  if (document.activeElement !== spreadEl) spreadEl.value = config.orbitSpread;
+  dock.querySelector('#sb-spread-out').textContent = `${config.orbitSpread.toFixed(2)}×`;
+  setRangePct(spreadEl);
+
+  const dragEl = dock.querySelector('#sb-drag');
+  if (document.activeElement !== dragEl) dragEl.value = Math.round(config.drag * 100);
+  dock.querySelector('#sb-drag-out').textContent = `${Math.round(config.drag * 100)}%`;
+  setRangePct(dragEl);
+
+  const brkBtn = dock.querySelector('#sb-breakup-btn');
+  brkBtn.setAttribute('aria-pressed', String(!config.allowBreakup));
+  brkBtn.textContent = config.allowBreakup ? '临界解体：开' : '🔒 全域不解体';
+
+  const snapLoadBtn = dock.querySelector('#sb-snap-load');
+  snapLoadBtn.disabled = !savedSnapshot;
 
   const antiBtn = dock.querySelector('[data-phenom="anti-gravity"]');
   if (antiBtn) {
@@ -3620,15 +4472,18 @@ export function createCosmicSandbox({
   dock.dataset.antigrav = String(config.gravityScale < 0);
 
   const hint = dock.querySelector('#sb-hint');
-  if (config.showScenarios) {
+  if (config.showLaws) {
+   hint.textContent = '全局物理法则 · 调高「行星互引」可贴脸捕获卫星 · 关闭「临界解体」可玩超极限自转不炸 · 可保存/回滚阵型快照';
+  } else if (config.showScenarios) {
    hint.textContent = '宇宙剧本与天象 · 一键体验三体乱纪元、双黑洞引力波、引力弹弓靶场、反重力炸花与奇点大爆炸';
   } else if (config.tool === 'spawn') {
    const def = SPAWN_CATALOG.find(c => c.id === config.spawnType);
-   hint.textContent = `造物发射 · 「${def?.label || ''}」：单击自动入轨，按住向后拉弓按弯曲引力轨发射（右键平移 · Alt+滚轮调高度 Y）`;
+   const modeStr = config.spawnMode === 'stationary' ? '单击静止 0 km/s 放置' : config.spawnMode === 'orbit' ? `单击自动${config.spawnRetrograde ? '逆行' : '顺行'}入轨（贴巨行星自动配月）` : '按住向后拉弓发射';
+   hint.textContent = `造物 · 「${def?.label || ''}」：${modeStr}，拖拽随时拉弓看实时速度与逃逸比（Alt+滚轮调高度 Y）`;
   } else if (config.tool === 'grab') {
    hint.textContent = '抓取模式 · 直接拖走黑洞、恒星或行星甩出对撞（Alt+滚轮调高度 · 拖空白处旋转）';
   } else {
-   hint.textContent = '自由空间 · 左键旋转 / 右键平移 / WASD+QE 漫游 · 单击任意天体微调引爆，双击锁定追踪视角';
+   hint.textContent = '自由空间 · 时间 0.05×～100× 无级变速 · 单击任意天体调自转/公转/温度/不解体锁，双击锁定追踪';
   }
 
   if (sim) {
@@ -3638,31 +4493,50 @@ export function createCosmicSandbox({
    dock.querySelector('#sb-tde').textContent = String(stats.disrupted);
    dock.querySelector('#sb-impacts').textContent = String(stats.impacts);
    dock.querySelector('#sb-debris').textContent = String(activeDebrisCount);
-   dock.querySelector('#sb-last').textContent = stats.lastEvent || '全天体实时 N-Body 互引中';
+   dock.querySelector('#sb-last').textContent = stats.lastEvent || '宽间距稳态 N-Body 互引中';
   }
  }
 
  dock.querySelectorAll('[data-tool]').forEach(btn => { btn.onclick = () => setTool(btn.dataset.tool); });
  dock.querySelectorAll('[data-spawn]').forEach(btn => { btn.onclick = () => setSpawnType(btn.dataset.spawn); });
+ dock.querySelectorAll('[data-spawnmode]').forEach(btn => { btn.onclick = () => setSpawnMode(btn.dataset.spawnmode); });
  dock.querySelectorAll('[data-scenario]').forEach(btn => { btn.onclick = () => loadScenario(btn.dataset.scenario); });
  dock.querySelectorAll('[data-phenom]').forEach(btn => { btn.onclick = () => triggerPhenomenon(btn.dataset.phenom); });
+ dock.querySelectorAll('[data-colmode]').forEach(btn => { btn.onclick = () => setCollisionMode(btn.dataset.colmode); });
  dock.querySelector('#sb-scenario-btn').onclick = () => {
   config.showScenarios = !config.showScenarios;
+  if (config.showScenarios) config.showLaws = false;
   updateDockUI();
  };
+ dock.querySelector('#sb-laws-btn').onclick = () => {
+  config.showLaws = !config.showLaws;
+  if (config.showLaws) config.showScenarios = false;
+  updateDockUI();
+ };
+ dock.querySelector('#sb-retro-btn').onclick = () => setSpawnRetrograde(!config.spawnRetrograde);
+ dock.querySelector('#sb-breakup-btn').onclick = () => setAllowBreakup(!config.allowBreakup);
+ dock.querySelector('#sb-snap-save').onclick = () => saveSnapshot();
+ dock.querySelector('#sb-snap-load').onclick = () => restoreSnapshot();
  dock.querySelectorAll('[data-speed]').forEach(btn => { btn.onclick = () => setSpeed(Number(btn.dataset.speed)); });
+ dock.querySelector('#sb-speed-slider').oninput = ev => setSpeed(sliderToSpeed(ev.target.value));
  dock.querySelector('#sb-y-down').onclick = () => setSpawnY(config.spawnY - 6);
  dock.querySelector('#sb-y-up').onclick = () => setSpawnY(config.spawnY + 6);
  dock.querySelector('#sb-bh-mass').oninput = e => setBhMass(Number(e.target.value));
  dock.querySelector('#sb-gravity').oninput = e => setGravityScale(Number(e.target.value));
+ dock.querySelector('#sb-planet-grav').oninput = e => setPlanetGravityBoost(Number(e.target.value));
+ dock.querySelector('#sb-spread').oninput = e => setOrbitSpread(Number(e.target.value));
+ dock.querySelector('#sb-drag').oninput = e => setDrag(Number(e.target.value) / 100);
  dock.querySelector('#sb-bullet-btn').onclick = () => setAutoBulletTime(!config.autoBulletTime);
  dock.querySelector('#sb-overlay-btn').onclick = () => setOverlays(!config.overlays);
  dock.querySelector('#sb-reset-btn').onclick = () => {
   config.bhMass = baseBhMass;
   config.gravityScale = 1.0;
+  config.drag = 0;
+  config.collisionMode = 'realistic';
+  config.allowBreakup = true;
   config.scenario = 'default';
   reset();
-  showBanner('时空复原', '六颗行星、瑶光与归墟已回到初始构型', 'reset');
+  showBanner('时空复原', '宽间距稳态六星、瑶光与归墟已回到初始构型', 'reset');
  };
  dock.querySelector('#sb-exit-btn').onclick = () => exit();
 
@@ -3674,10 +4548,11 @@ export function createCosmicSandbox({
   if (!SANDBOX_SCENARIOS.some(s => s.id === scenarioId)) return false;
   config.scenario = scenarioId;
   config.showScenarios = false;
+  config.showLaws = false;
   endDrag(false);
   spawnDrag.active = false;
   applySandboxScenario(scenarioId, {
-   initBase: () => initSimulation(lastSimTimeFromHost),
+   initBase: spreadOverride => initSimulation(lastSimTimeFromHost, spreadOverride),
    hide: id => {
     const e = sim?.entities.find(x => x.id === id);
     if (e) hideEntityVisual(e);
@@ -3843,11 +4718,15 @@ export function createCosmicSandbox({
 
  function setTool(tool) {
   config.tool = tool === 'grab' ? 'grab' : tool === 'spawn' ? 'spawn' : 'orbit';
-  if (config.tool === 'spawn') config.showScenarios = false;
+  if (config.tool === 'spawn') {
+   config.showScenarios = false;
+   config.showLaws = false;
+  }
   if (config.tool !== 'grab' && drag.target) endDrag(false);
   if (config.tool !== 'spawn') {
    spawnDrag.active = false;
    spawnDrag.hoverValid = false;
+   aimHud.hidden = true;
   }
   renderer.domElement.style.cursor = config.tool === 'grab' ? 'grab' : config.tool === 'spawn' ? 'crosshair' : '';
   updateDockUI();
@@ -3857,7 +4736,18 @@ export function createCosmicSandbox({
   if (!SPAWN_CATALOG.some(c => c.id === typeId)) return;
   config.spawnType = typeId;
   config.showScenarios = false;
+  config.showLaws = false;
   if (config.tool !== 'spawn') config.tool = 'spawn';
+  updateDockUI();
+ }
+
+ function setSpawnMode(mode) {
+  config.spawnMode = mode === 'stationary' ? 'stationary' : mode === 'slingshot' ? 'slingshot' : 'orbit';
+  updateDockUI();
+ }
+
+ function setSpawnRetrograde(on) {
+  config.spawnRetrograde = !!on;
   updateDockUI();
  }
 
@@ -3867,7 +4757,9 @@ export function createCosmicSandbox({
  }
 
  function setSpeed(speed) {
-  config.timeScale = Math.max(0, Math.min(4, Number(speed) || 0));
+  const s = Number(speed);
+  if (!Number.isFinite(s) || s <= 0) config.timeScale = 0;
+  else config.timeScale = THREE.MathUtils.clamp(s, 0.05, 100);
   if (config.timeScale === 0 || config.timeScale <= 0.25) bulletTimer = 0;
   updateDockUI();
  }
@@ -3881,12 +4773,172 @@ export function createCosmicSandbox({
 
  function setGravityScale(scale) {
   const prev = config.gravityScale;
-  config.gravityScale = Math.max(-2.0, Math.min(3.0, Number(scale)));
+  config.gravityScale = Math.max(-2.0, Math.min(5.0, Number(scale)));
   if (Number.isNaN(config.gravityScale)) config.gravityScale = 1.0;
   if (config.gravityScale < -0.05 && prev >= -0.05) {
    unlockEgg('anti-gravity', `引力已翻转至 ${config.gravityScale.toFixed(1)}×，整个星系进入斥力炸花态！`);
   }
   updateDockUI();
+ }
+
+ function setPlanetGravityBoost(mult) {
+  config.planetGravityBoost = THREE.MathUtils.clamp(Number(mult) || 1.0, 1.0, 25.0);
+  if (sim) computeAccelerations(sim.entities, true);
+  updateDockUI();
+  updateInspectorUI();
+ }
+
+ function setOrbitSpread(spread) {
+  const next = THREE.MathUtils.clamp(Number(spread) || DEFAULT_ORBIT_SPREAD, 0.6, 3.0);
+  const prev = sim?.spreadUsed || config.orbitSpread || 1.0;
+  config.orbitSpread = next;
+  if (active && sim && Math.abs(next - prev) > 0.005) {
+   const ratio = next / prev;
+   const invSqrt = 1 / Math.sqrt(ratio);
+   const pivot = sim.barycenter.clone();
+   const pVel = sim.baryVel.clone();
+   for (const e of sim.entities) {
+    if (!e.alive || e.pinned) continue;
+    e.pos.sub(pivot).multiplyScalar(ratio).add(pivot);
+    e.prevPos.copy(e.pos);
+    e.vel.sub(pVel).multiplyScalar(invSqrt).add(pVel);
+    if (e.isOriginal && e.visual) e.visual.history = [e.pos.clone()];
+    else if (e.history) e.history = [e.pos.clone()];
+   }
+   sim.spreadUsed = next;
+   computeAccelerations(sim.entities, true);
+  }
+  updateDockUI();
+ }
+
+ function setDrag(val) {
+  config.drag = THREE.MathUtils.clamp(Number(val) || 0, 0, 1);
+  updateDockUI();
+ }
+
+ function setCollisionMode(mode) {
+  config.collisionMode = mode === 'accrete' ? 'accrete' : mode === 'elastic' ? 'elastic' : 'realistic';
+  updateDockUI();
+ }
+
+ function setAllowBreakup(on) {
+  config.allowBreakup = !!on;
+  if (!config.allowBreakup && sim) {
+   for (const e of sim.entities) {
+    e.spinDamage = 0;
+    e.tidalDamage = 0;
+   }
+  }
+  updateDockUI();
+  updateInspectorUI();
+ }
+
+ function saveSnapshot() {
+  if (!active || !sim) return false;
+  savedSnapshot = {
+   config: {
+    bhMass: config.bhMass,
+    gravityScale: config.gravityScale,
+    planetGravityBoost: config.planetGravityBoost,
+    orbitSpread: config.orbitSpread,
+    drag: config.drag,
+    collisionMode: config.collisionMode,
+    allowBreakup: config.allowBreakup,
+    scenario: config.scenario
+   },
+   spreadUsed: sim.spreadUsed,
+   entities: sim.entities.map(e => ({
+    id: e.id,
+    name: e.name,
+    kind: e.kind,
+    subType: e.subType,
+    isOriginal: e.isOriginal,
+    alive: e.alive,
+    status: e.status,
+    mass: e.mass,
+    radius: e.radius,
+    targetRadius: e.targetRadius,
+    pos: [e.pos.x, e.pos.y, e.pos.z],
+    vel: [e.vel.x, e.vel.y, e.vel.z],
+    spinRate: e.spinRate || 0,
+    spinAngle: e.spinAngle || 0,
+    temperature: e.temperature || 280,
+    lavaHeat: e.lavaHeat || 0,
+    mergedCount: e.mergedCount || 0,
+    noBreakup: !!e.noBreakup,
+    pinned: !!e.pinned,
+    colorHex: `#${e.color.getHexString()}`
+   }))
+  };
+  showBanner('📷 阵型快照已保存', `已定格 ${savedSnapshot.entities.filter(x => x.alive).length} 颗天体的坐标、速度与全部物理参数`, 'info');
+  updateDockUI();
+  return true;
+ }
+
+ function restoreSnapshot() {
+  if (!active || !savedSnapshot) return false;
+  const snap = savedSnapshot;
+  Object.assign(config, snap.config);
+  initSimulation(lastSimTimeFromHost, snap.spreadUsed);
+
+  // Restore original bodies first
+  for (const rec of snap.entities) {
+   if (!rec.isOriginal) continue;
+   const ent = sim.entities.find(x => x.id === rec.id);
+   if (!ent) continue;
+   if (!rec.alive) {
+    hideEntityVisual(ent);
+    ent.status = rec.status;
+    continue;
+   }
+   ent.alive = true;
+   ent.status = rec.status;
+   ent.mass = rec.mass;
+   ent.radius = rec.radius;
+   ent.targetRadius = rec.targetRadius;
+   ent.pos.set(...rec.pos);
+   ent.prevPos.copy(ent.pos);
+   ent.vel.set(...rec.vel);
+   ent.spinRate = rec.spinRate;
+   ent.spinAngle = rec.spinAngle;
+   ent.temperature = rec.temperature;
+   ent.lavaHeat = rec.lavaHeat;
+   ent.mergedCount = rec.mergedCount;
+   ent.noBreakup = rec.noBreakup;
+   ent.pinned = rec.pinned;
+   ent.baseSpeed = ent.vel.length();
+   ent.peakSpeed = ent.baseSpeed;
+   if (ent.visual) ent.visual.history = [ent.pos.clone()];
+  }
+
+  // Recreate dynamic bodies
+  for (const rec of snap.entities) {
+   if (rec.isOriginal || !rec.alive) continue;
+   const ent = spawnSingleEntity(rec.subType || 'rocky', new THREE.Vector3(...rec.pos), new THREE.Vector3(...rec.vel), {
+    id: rec.id,
+    name: rec.name,
+    mass: rec.mass,
+    radius: rec.radius,
+    spinRate: rec.spinRate,
+    temperature: rec.temperature,
+    noBreakup: rec.noBreakup,
+    pinned: rec.pinned,
+    colorHex: rec.colorHex
+   });
+   if (ent) {
+    ent.targetRadius = rec.targetRadius;
+    ent.spinAngle = rec.spinAngle;
+    ent.lavaHeat = rec.lavaHeat;
+    ent.mergedCount = rec.mergedCount;
+   }
+  }
+
+  computeAccelerations(sim.entities, true);
+  applyVisualPoses(0);
+  updateDockUI();
+  updateInspectorUI();
+  showBanner('↺ 已回滚阵型快照', `恢复 ${sim.entities.filter(e => e.alive).length} 颗天体与物理法则状态`, 'reset');
+  return true;
  }
 
  function setOverlays(on) {
@@ -3912,10 +4964,135 @@ export function createCosmicSandbox({
   } else if (e.kind === 'star') {
    e.targetRadius = THREE.MathUtils.clamp(STAR_RADIUS * Math.pow(m / STAR_MASS, 0.28), 3.2, 8.6);
   } else if (e.kind === 'planet') {
-   e.targetRadius = THREE.MathUtils.clamp(e.baseRadius * Math.pow(m / Math.max(PLANET_MASSES[e.id] || 0.14, 0.05), 0.22), 1.4, 6.2);
+   e.targetRadius = THREE.MathUtils.clamp(e.baseRadius * Math.pow(m / Math.max(PLANET_MASSES[e.id] || 0.14, 0.04), 0.20), 1.2, 6.4);
   }
   checkMassCollapse(e);
   updateDockUI();
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityRadius(id, newRadius) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  const r = THREE.MathUtils.clamp(Number(newRadius) || e.radius, 0.55, 10.5);
+  e.radius = r;
+  e.targetRadius = r;
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntitySpeed(id, newSpeed) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  const s = THREE.MathUtils.clamp(Number(newSpeed) || 0, 0, 140);
+  if (s > 0.01) e.pinned = false;
+  if (s <= 0.01) {
+   e.vel.set(0, 0, 0);
+  } else if (e.vel.lengthSq() > 1e-4) {
+   e.vel.setLength(s);
+  } else {
+   const attr = dominantAttractorNear(e.pos, e, e.kind);
+   const dir = attr ? circularVelocityAround(e.pos, attr, e.kind).sub(attr.vel) : new THREE.Vector3(1, 0, 0);
+   if (dir.lengthSq() < 1e-4) dir.set(1, 0, 0);
+   e.vel.copy(dir.normalize().multiplyScalar(s));
+  }
+  e.baseSpeed = e.vel.length();
+  e.peakSpeed = e.baseSpeed;
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityStationary(id) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.vel.set(0, 0, 0);
+  e.baseSpeed = 0;
+  e.peakSpeed = 0;
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityCircularOrbit(id, retrograde = false) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.pinned = false;
+  const attr = dominantAttractorNear(e.pos, e, e.kind);
+  if (!attr) return false;
+  e.vel.copy(circularVelocityAround(e.pos, attr, e.kind, retrograde));
+  e.baseSpeed = e.vel.length();
+  e.peakSpeed = e.baseSpeed;
+  showBanner('精准入轨', `${e.name} 已匹配环绕 ${attr.name} 的标准圆轨速度`, 'info');
+  updateInspectorUI();
+  return true;
+ }
+
+ function reverseEntityOrbit(id) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.pinned = false;
+  const attr = dominantAttractorNear(e.pos, e, e.kind);
+  if (attr) {
+   e.vel.sub(attr.vel).negate().add(attr.vel);
+  } else {
+   e.vel.negate();
+  }
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntitySpin(id, spinRate) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e || e.kind === 'bh' || e.kind === 'probe') return false;
+  e.spinRate = THREE.MathUtils.clamp(Number(spinRate) || 0, -25, 25);
+  const crit = criticalSpinFor(e);
+  const ratio = Number.isFinite(crit) ? Math.abs(e.spinRate) / Math.max(crit, 0.05) : 0;
+  const ob = Math.min(ratio, 1.38);
+  e.oblateXZ = 1 + 0.30 * ob * ob;
+  e.oblateY = 1 / (e.oblateXZ * e.oblateXZ);
+  e._spinRatio = ratio;
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityTemp(id, tempK) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.temperature = THREE.MathUtils.clamp(Number(tempK) || 280, 40, 4500);
+  e.tempHold = 18;
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityNoBreakup(id, on) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.noBreakup = !!on;
+  if (e.noBreakup) {
+   e.spinDamage = 0;
+   e.tidalDamage = 0;
+  }
+  updateInspectorUI();
+  return true;
+ }
+
+ function setEntityPinned(id, on) {
+  if (!active || !sim) return false;
+  const e = sim.entities.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.pinned = !!on;
+  if (e.pinned) {
+   e.vel.set(0, 0, 0);
+   e.acc.set(0, 0, 0);
+  }
   updateInspectorUI();
   return true;
  }
@@ -3924,6 +5101,7 @@ export function createCosmicSandbox({
   if (!active || !sim) return false;
   const e = sim.entities.find(x => x.id === id && x.alive);
   if (!e) return false;
+  e.pinned = false;
   e.vel.multiplyScalar(factor);
   if (e.vel.length() > 140) e.vel.setLength(140);
   updateInspectorUI();
@@ -3963,15 +5141,16 @@ export function createCosmicSandbox({
   };
   controls.enablePan = true;
   controls.screenSpacePanning = true;
-  controls.panSpeed = 1.1;
+  controls.panSpeed = 1.15;
   controls.minDistance = 8;
-  controls.maxDistance = 960;
+  controls.maxDistance = 1280;
   controls.minPolarAngle = 0.04;
   controls.maxPolarAngle = Math.PI * 0.96;
 
   onEnter();
   initSimulation(hostSimTime);
-  showBanner('宇宙沙盒 2.0 已就绪', '自由平移缩放 · 点「✦ 造物发射」投放恒星/黑洞/探测器，恒星对撞将引爆超新星！', 'info');
+  setCameraView('overview', true);
+  showBanner('宇宙沙盒 3.0 已就绪', '宽间距稳态开局 · 支持 0.05×～100× 变速、行星互引配月、静止投放、自转解体与物理法则定制', 'info');
  }
 
  function reset(hostSimTime = lastSimTimeFromHost) {
@@ -3989,7 +5168,10 @@ export function createCosmicSandbox({
    b.root.quaternion.identity();
    b.surface.scale.setScalar(pv.baseRadius);
    if (b.clouds) b.clouds.scale.setScalar(pv.baseRadius * 1.012);
-   if (b.atmosphere) b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
+   if (b.atmosphere) {
+    b.atmosphere.rotation.z = 0;
+    b.atmosphere.scale.setScalar(pv.baseRadius * 1.06);
+   }
    if (b.ring) {
     b.ring.visible = true;
     b.ring.scale.setScalar(1);
@@ -4036,8 +5218,13 @@ export function createCosmicSandbox({
   spawnStem.visible = false;
   aimArrow.visible = false;
   previewLine.visible = false;
+  aimHud.hidden = true;
   config.showScenarios = false;
+  config.showLaws = false;
   config.gravityScale = 1.0;
+  config.drag = 0;
+  config.collisionMode = 'realistic';
+  config.allowBreakup = true;
   config.scenario = 'default';
   dock.hidden = true;
   camBar.hidden = true;
@@ -4079,7 +5266,11 @@ export function createCosmicSandbox({
   if (!active || !sim) return false;
   const entity = sim.entities.find(e => e.id === id);
   if (!entity || !entity.alive) return false;
-  if (Array.isArray(posArr) && posArr.length === 3) entity.pos.set(posArr[0], posArr[1], posArr[2]);
+  entity.pinned = false;
+  if (Array.isArray(posArr) && posArr.length === 3) {
+   entity.pos.set(posArr[0], posArr[1], posArr[2]);
+   entity.prevPos.copy(entity.pos);
+  }
   if (Array.isArray(velArr) && velArr.length === 3) {
    entity.vel.set(velArr[0], velArr[1], velArr[2]);
    entity.baseSpeed = entity.vel.length();
@@ -4105,7 +5296,8 @@ export function createCosmicSandbox({
    effectiveScale *= dip;
   }
 
-  const dtSim = (!paused && !reducedMotion && effectiveScale > 0) ? Math.min(dtReal * effectiveScale, 0.12) : 0;
+  // True 0.05x .. 100x time scaling backed by adaptive Verlet substeps + CCD!
+  const dtSim = (!paused && !reducedMotion && effectiveScale > 0) ? Math.min(dtReal * effectiveScale, 3.6) : 0;
   if (dtSim > 0) {
    simTime += dtSim;
    stepPhysics(dtSim);
@@ -4144,6 +5336,8 @@ export function createCosmicSandbox({
     aliveStars: 1,
     aliveBlackHoles: 1,
     aliveNeutronStars: 0,
+    aliveWhiteDwarfs: 0,
+    aliveMoons: 0,
     aliveProbes: 0,
     disrupted: 0,
     stellarTdes: 0,
@@ -4152,17 +5346,26 @@ export function createCosmicSandbox({
     shatters: 0,
     vaporized: 0,
     supernovae: 0,
+    typeIaSupernovae: 0,
     starMergers: 0,
     bhMergers: 0,
     kilonovae: 0,
     collapses: 0,
     slingshots: 0,
+    spinBreakups: 0,
+    elasticBounces: 0,
     spawned: 0,
     activeDebris: 0,
     bhFlare: 0,
     starDisp: 0,
     bhDisp: 0,
     barycenterSpeed: 0,
+    orbitSpread: config.orbitSpread,
+    planetGravityBoost: config.planetGravityBoost,
+    drag: config.drag,
+    collisionMode: config.collisionMode,
+    allowBreakup: config.allowBreakup,
+    hasSnapshot: !!savedSnapshot,
     following: null,
     selectedId: null,
     enablePan: !!controls.enablePan,
@@ -4174,11 +5377,15 @@ export function createCosmicSandbox({
   const origPlanets = sim.entities.filter(e => e.isOriginal && e.kind === 'planet');
   return {
    active,
+   simTime: +simTime.toFixed(2),
+   timeScale: config.timeScale,
    alivePlanets: origPlanets.filter(p => p.alive).length,
    totalBodies: sim.entities.filter(e => e.alive).length,
    aliveStars: sim.entities.filter(e => e.alive && e.kind === 'star').length,
    aliveBlackHoles: sim.entities.filter(e => e.alive && e.kind === 'bh').length,
    aliveNeutronStars: sim.entities.filter(e => e.alive && e.kind === 'neutron').length,
+   aliveWhiteDwarfs: sim.entities.filter(e => e.alive && e.kind === 'white-dwarf').length,
+   aliveMoons: sim.entities.filter(e => e.alive && e.kind === 'moon').length,
    aliveProbes: sim.entities.filter(e => e.alive && e.kind === 'probe').length,
    disrupted: stats.disrupted,
    stellarTdes: stats.stellarTdes,
@@ -4187,14 +5394,24 @@ export function createCosmicSandbox({
    shatters: stats.shatters,
    vaporized: stats.vaporized,
    supernovae: stats.supernovae,
+   typeIaSupernovae: stats.typeIaSupernovae,
    starMergers: stats.starMergers,
    bhMergers: stats.bhMergers,
    kilonovae: stats.kilonovae,
    collapses: stats.collapses,
    slingshots: stats.slingshots,
    bigBangs: stats.bigBangs,
+   spinBreakups: stats.spinBreakups,
+   elasticBounces: stats.elasticBounces,
    spawned: stats.spawned,
    scenario: config.scenario,
+   orbitSpread: config.orbitSpread,
+   planetGravityBoost: config.planetGravityBoost,
+   drag: config.drag,
+   collisionMode: config.collisionMode,
+   allowBreakup: config.allowBreakup,
+   spawnMode: config.spawnMode,
+   hasSnapshot: !!savedSnapshot,
    unlockedEggs: [...unlockedEggs],
    eggCount: unlockedEggs.size,
    totalEggs: SANDBOX_EGGS.length,
@@ -4204,8 +5421,8 @@ export function createCosmicSandbox({
    bhFlare: +(sim.bh?.flare || 0).toFixed(3),
    starAlive: !!sim.star?.alive,
    bhAlive: !!sim.bh?.alive,
-   starDisp: +sim.star.pos.length().toFixed(3),
-   bhDisp: +sim.bh.pos.distanceTo(new THREE.Vector3(-64, 4.2, 22)).toFixed(3),
+   starDisp: +sim.star.pos.distanceTo(sim.starInitPos).toFixed(3),
+   bhDisp: +sim.bh.pos.distanceTo(sim.bhInitPos).toFixed(3),
    barycenterSpeed: +sim.barySpeed.toFixed(4),
    bhMass: +(sim.bh?.mass || config.bhMass).toFixed(2),
    rocheRadiusRef: +rocheRadiusFor(3.0, sim.bh?.mass || config.bhMass).toFixed(2),
@@ -4224,6 +5441,11 @@ export function createCosmicSandbox({
     mergedCount: p.mergedCount,
     lavaHeat: +p.lavaHeat.toFixed(3),
     tidalStress: +p.tidalStress.toFixed(3),
+    spinRate: +(p.spinRate || 0).toFixed(3),
+    spinRatio: +(p._spinRatio || 0).toFixed(2),
+    temperature: Math.round(p.temperature || 280),
+    noBreakup: !!p.noBreakup,
+    pinned: !!p.pinned,
     pos: [+p.pos.x.toFixed(2), +p.pos.y.toFixed(2), +p.pos.z.toFixed(2)]
    })),
    entities: sim.entities.filter(e => e.alive).map(e => ({
@@ -4234,6 +5456,13 @@ export function createCosmicSandbox({
     mass: +e.mass.toFixed(3),
     radius: +e.radius.toFixed(3),
     speed: +e.vel.length().toFixed(2),
+    escapeVel: +escapeVelocityFor(e).toFixed(2),
+    spinRate: +(e.spinRate || 0).toFixed(3),
+    criticalSpin: Number.isFinite(criticalSpinFor(e)) ? +criticalSpinFor(e).toFixed(3) : null,
+    spinRatio: +(e._spinRatio || 0).toFixed(2),
+    temperature: Math.round(e.temperature || 0),
+    noBreakup: !!e.noBreakup,
+    pinned: !!e.pinned,
     pos: [+e.pos.x.toFixed(2), +e.pos.y.toFixed(2), +e.pos.z.toFixed(2)]
    }))
   };
@@ -4243,10 +5472,17 @@ export function createCosmicSandbox({
   get active() { return active; },
   get tool() { return config.tool; },
   get spawnType() { return config.spawnType; },
+  get spawnMode() { return config.spawnMode; },
+  get spawnRetrograde() { return config.spawnRetrograde; },
   get spawnY() { return config.spawnY; },
   get timeScale() { return config.timeScale; },
   get bhMass() { return sim?.bh?.alive ? sim.bh.mass : config.bhMass; },
   get gravityScale() { return config.gravityScale; },
+  get planetGravityBoost() { return config.planetGravityBoost; },
+  get orbitSpread() { return config.orbitSpread; },
+  get drag() { return config.drag; },
+  get collisionMode() { return config.collisionMode; },
+  get allowBreakup() { return config.allowBreakup; },
   get overlays() { return config.overlays; },
   get autoBulletTime() { return config.autoBulletTime; },
   get starAlive() { return !active || !!sim?.star?.alive; },
@@ -4281,10 +5517,19 @@ export function createCosmicSandbox({
   updateLabels,
   setTool,
   setSpawnType,
+  setSpawnMode,
+  setSpawnRetrograde,
   setSpawnY,
   setSpeed,
   setBhMass,
   setGravityScale,
+  setPlanetGravityBoost,
+  setOrbitSpread,
+  setDrag,
+  setCollisionMode,
+  setAllowBreakup,
+  saveSnapshot,
+  restoreSnapshot,
   setOverlays,
   setAutoBulletTime,
   loadScenario,
@@ -4294,6 +5539,15 @@ export function createCosmicSandbox({
   followBody,
   setCameraView,
   setEntityMass,
+  setEntityRadius,
+  setEntitySpeed,
+  setEntityStationary,
+  setEntityCircularOrbit,
+  reverseEntityOrbit,
+  setEntitySpin,
+  setEntityTemp,
+  setEntityNoBreakup,
+  setEntityPinned,
   boostEntity,
   detonateBody,
   deleteEntity,

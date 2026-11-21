@@ -386,7 +386,7 @@ function moveBodies(){
  const overridden=!!cosmicEvents?.overrideBodies||!!sandbox?.active;
  for(const b of bodies){
   if(!overridden){const d=b.def,a=d.phase+state.time/d.period*Math.PI*2;b.root.position.set(Math.cos(a)*d.orbit,0,Math.sin(a)*d.orbit);}
-  b.surface.rotation.y=state.time*.015;if(b.clouds)b.clouds.rotation.y=state.time*.019;
+  if(!sandbox?.active){b.surface.rotation.y=state.time*.015;if(b.clouds)b.clouds.rotation.y=state.time*.019;}
   b.surface.material.uniforms.uTime.value=state.time;
   if(b.ring)b.ring.material.uniforms.uCenter.value.copy(b.root.position);
   for(const m of b.moons){const t=m.phase+state.time/m.period*Math.PI*2;m.mesh.position.set(Math.cos(t)*m.orbitRadius,0,Math.sin(t)*m.orbitRadius).applyEuler(m.track.rotation);m.mesh.rotation.y=state.time*.025;}

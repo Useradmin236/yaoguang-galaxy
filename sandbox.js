@@ -9,6 +9,13 @@
 // ringdown mergers, NS x NS kilonovae, Roche planetary TDE, molten mergers & shatters.
 
 import { SPAWN_CATALOG, createSandboxBodyFactory } from './sandbox-bodies.js';
+import {
+ SANDBOX_SCENARIOS,
+ SANDBOX_PHENOMENA,
+ SANDBOX_EGGS,
+ computeEraTag,
+ applySandboxScenario
+} from './sandbox-scenarios.js';
 
 const NOISE_GLSL = `
 float hash3(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
@@ -142,12 +149,18 @@ export function createCosmicSandbox({
   tool: 'orbit', // 'orbit' | 'spawn' | 'grab'
   spawnType: 'star-blue',
   spawnY: 0,
+  scenario: 'default',
+  showScenarios: false,
   timeScale: 1,
   bhMass: baseBhMass,
   gravityScale: 1,
   overlays: false,
   autoBulletTime: true
  };
+
+ const unlockedEggs = new Set();
+ let voidPrompted = false;
+ let threeBodyActive = false;
 
  let active = false;
  let simTime = 0;
@@ -802,10 +815,23 @@ export function createCosmicSandbox({
   kilonovae: 0,
   collapses: 0,
   slingshots: 0,
+  bigBangs: 0,
   spawned: 0,
   lastEvent: '',
   lastEnergy1e32J: 0
  };
+
+ function unlockEgg(id, customDetail = null, action = null) {
+  const def = SANDBOX_EGGS.find(x => x.id === id);
+  if (!def) return false;
+  const first = !unlockedEggs.has(id);
+  unlockedEggs.add(id);
+  if (first || action) {
+   showBanner(`★ 彩蛋 · ${def.title}`, customDetail || def.desc, 'egg', action);
+   updateDockUI();
+  }
+  return first;
+ }
 
  function bhVisualScale(massSolar = config.bhMass) {
   return THREE.MathUtils.clamp(Math.pow(Math.max(massSolar, 1) / baseBhMass, 0.35), 0.56, 2.45);
@@ -1104,6 +1130,8 @@ export function createCosmicSandbox({
   for (const k of Object.keys(typeCounters)) delete typeCounters[k];
   selectedEntity = null;
   followEntity = null;
+  voidPrompted = false;
+  threeBodyActive = false;
   bulletTimer = 0;
   bloomSurge = 0;
   rippleSurge = 0;
@@ -1906,6 +1934,7 @@ export function createCosmicSandbox({
     if (wasFollowed) followBody(ignited);
    }
    announceEvent('核聚变点火 · 行星成星', `${oldName} 质量越过临界线，核心点燃跃迁为恒星！`, 'stellar');
+   unlockEgg('self-collapse', `亲手将 ${oldName} 点燃成恒星，解锁造物主坍缩彩蛋！`);
   } else if (e.kind === 'star' && e.mass >= 20.0) {
    stats.collapses++;
    const pos = e.pos.clone(), vel = e.vel.clone(), mass = e.mass;
@@ -1918,6 +1947,7 @@ export function createCosmicSandbox({
     detail: `${oldName} 质量突破 ${mass.toFixed(1)} M☉ 托尔曼极限，触发超新星坍缩`,
     spawnRemnant: true
    });
+   unlockEgg('self-collapse', `令 ${oldName} 引力坍缩自造黑洞，解锁造物主坍缩彩蛋！`);
   }
  }
 
@@ -2024,18 +2054,20 @@ export function createCosmicSandbox({
     if (e.kind === 'probe' || e.kind === 'planet') {
      const spd = Math.sqrt(spdSq);
      if (spd > e.peakSpeed) e.peakSpeed = spd;
-     if (!e.slingshotAwarded && e.baseSpeed > 1.5 && spd > Math.max(e.baseSpeed * 1.95, 22)) {
+     if (!e.slingshotAwarded && e.baseSpeed > 1.5 && spd > Math.max(e.baseSpeed * 1.85, 20)) {
       // Confirm near a heavy body for genuine gravity assist
       for (const attr of sim.entities) {
        if (!attr.alive || attr === e) continue;
        if (attr.kind !== 'bh' && attr.kind !== 'star' && !(attr.kind === 'planet' && attr.isGasOrIce)) continue;
        const d = e.pos.distanceTo(attr.pos);
-       if (d < Math.max(attr.radius * 7.5, 24)) {
+       if (d < Math.max(attr.radius * 8.5, 28)) {
         e.slingshotAwarded = true;
         e.slingshotFlash = 1.0;
         stats.slingshots++;
-        spawnShockwave(e.pos, { maxRadius: 12, flashSize: 10, dur: 1.4, colorA: [1.0, 0.92, 0.58], colorB: [0.42, 0.94, 0.84] });
-        announceEvent('引力弹弓达成 · +Δv', `${e.name} 借 ${attr.name} 加速至 ${(spd / e.baseSpeed).toFixed(1)}× 初始速率！`, 'slingshot');
+        spawnShockwave(e.pos, { maxRadius: 13, flashSize: 11, dur: 1.5, colorA: [1.0, 0.92, 0.58], colorB: [0.42, 0.94, 0.84] });
+        const mult = (spd / e.baseSpeed).toFixed(1);
+        announceEvent('引力弹弓达成 · +Δv', `${e.name} 借 ${attr.name} 加速至 ${mult}× 初始速率！`, 'slingshot');
+        unlockEgg('slingshot-master', `${e.name} 贴近 ${attr.name} 完成 ${mult}× 极限引力弹弓！`);
         break;
        }
       }
@@ -2269,6 +2301,22 @@ export function createCosmicSandbox({
    sim.barySpeed = Math.hypot(vx / sumM, vz / sumM);
   }
 
+  // Easter Egg monitors: Three-Body Chaos (>=3 stars) & All-Consumed Singularity Void!
+  const aliveStars = sim.entities.filter(e => e.alive && e.kind === 'star');
+  threeBodyActive = aliveStars.length >= 3;
+  if (threeBodyActive && !unlockedEggs.has('three-body')) {
+   unlockEgg('three-body', '场内已集齐三颗恒星，行星标签切换实时恒纪元 / 乱纪元温态！');
+  }
+  const aliveWorlds = sim.entities.filter(e => e.alive && (e.kind === 'planet' || e.kind === 'comet'));
+  const aliveBHs = sim.entities.filter(e => e.alive && e.kind === 'bh');
+  if (!voidPrompted && aliveStars.length === 0 && aliveWorlds.length === 0 && aliveBHs.length >= 1) {
+   voidPrompted = true;
+   unlockEgg('big-bang', '万物已被奇点吞噬殆尽，宇宙陷入寂静——点击右侧按钮以大爆炸重开新星系！', {
+    label: '✦ 奇点大爆炸重开',
+    onClick: () => triggerPhenomenon('big-bang')
+   });
+  }
+
   stepDebris(dtSim);
  }
 
@@ -2447,6 +2495,7 @@ export function createCosmicSandbox({
   }
 
   // Update all original planets + dynamic spawned bodies
+  const aliveStarsForEra = sim.entities.filter(x => x.alive && x.kind === 'star');
   for (const e of sim.entities) {
    if (e.isOriginal && e.kind === 'planet') {
     const pv = e.visual;
@@ -2486,7 +2535,12 @@ export function createCosmicSandbox({
      }
      pushTrail(pv.history, pv.trail, e.pos, 0.66);
      const refPos = primaryStar ? primaryStar.pos : sim.barycenter;
-     const tag = e.mergedCount > 0 ? `合并 ×${e.mergedCount + 1}` : e.tidalStress > 0.25 ? '洛希撕裂中' : `${(e.pos.distanceTo(refPos) / 31.4).toFixed(2)} AU`;
+     const eraTag = aliveStarsForEra.length >= 3 ? computeEraTag(e.pos, aliveStarsForEra) : null;
+     const tag = e.mergedCount > 0
+      ? `合并 ×${e.mergedCount + 1}`
+      : e.tidalStress > 0.25
+       ? '洛希撕裂中'
+       : eraTag || `${(e.pos.distanceTo(refPos) / 31.4).toFixed(2)} AU`;
      const small = b.label.querySelector('small');
      if (small && small.textContent !== tag) small.textContent = tag;
     } else {
@@ -3258,20 +3312,33 @@ export function createCosmicSandbox({
  banner.setAttribute('role', 'status');
  banner.setAttribute('aria-live', 'polite');
  banner.hidden = true;
- banner.innerHTML = '<span class="sb-banner-dot" aria-hidden="true"></span><div><strong id="sb-banner-title"></strong><p id="sb-banner-detail"></p></div>';
+ banner.innerHTML = '<span class="sb-banner-dot" aria-hidden="true"></span><div class="sb-banner-body"><strong id="sb-banner-title"></strong><p id="sb-banner-detail"></p></div><button id="sb-banner-act" type="button" class="sb-banner-act" hidden></button>';
  document.body.append(banner);
 
- function showBanner(title, detail, badge = 'event') {
+ function showBanner(title, detail, badge = 'event', action = null) {
   banner.dataset.kind = badge;
   banner.querySelector('#sb-banner-title').textContent = title;
   banner.querySelector('#sb-banner-detail').textContent = detail;
+  const actBtn = banner.querySelector('#sb-banner-act');
+  if (action && action.label && typeof action.onClick === 'function') {
+   actBtn.textContent = action.label;
+   actBtn.hidden = false;
+   actBtn.onclick = () => {
+    actBtn.hidden = true;
+    action.onClick();
+   };
+  } else {
+   actBtn.hidden = true;
+   actBtn.onclick = null;
+  }
   banner.hidden = false;
   banner.classList.add('show');
   clearTimeout(bannerTimer);
+  const timeoutMs = action ? 12000 : 4800;
   bannerTimer = setTimeout(() => {
    banner.classList.remove('show');
    bannerTimer = setTimeout(() => { if (!banner.classList.contains('show')) banner.hidden = true; }, 320);
-  }, 4600);
+  }, timeoutMs);
  }
 
  // Top-Right Spatial Camera Bar
@@ -3415,8 +3482,25 @@ export function createCosmicSandbox({
  const spawnChipsHtml = SPAWN_CATALOG.map(c =>
   `<button type="button" class="sb-spawn-chip" data-spawn="${c.id}" aria-pressed="${c.id === config.spawnType}" title="${c.hint}"><span class="sb-sp-ico" style="color:${c.color}">${c.icon}</span><span>${c.short}</span></button>`
  ).join('');
+ const scenarioChipsHtml = SANDBOX_SCENARIOS.map(sc =>
+  `<button type="button" class="sb-scen-chip" data-scenario="${sc.id}" aria-pressed="${sc.id === config.scenario}" title="${sc.summary}"><span class="sb-sc-ico">${sc.icon}</span><span>${sc.name}</span><em>${sc.badge}</em></button>`
+ ).join('');
+ const phenomChipsHtml = SANDBOX_PHENOMENA.map(ph =>
+  `<button type="button" class="sb-phen-btn sb-phen-${ph.kind}" data-phenom="${ph.id}" title="${ph.title}"><span>${ph.icon}</span>${ph.label}</button>`
+ ).join('');
 
  dock.innerHTML = `
+  <div id="sb-scenario-bar" class="sb-scenario-bar" hidden>
+   <div class="sb-scen-row">
+    <span class="sb-drawer-label">宇宙剧本</span>
+    <div class="sb-scen-list" role="group" aria-label="一键切换宇宙剧本">${scenarioChipsHtml}</div>
+    <span id="sb-egg-badge" class="sb-egg-badge" title="">★ 彩蛋 0 / ${SANDBOX_EGGS.length}</span>
+   </div>
+   <div class="sb-scen-row">
+    <span class="sb-drawer-label">奇观天象</span>
+    <div class="sb-phen-list" role="group" aria-label="手动触发宇宙天象">${phenomChipsHtml}</div>
+   </div>
+  </div>
   <div id="sb-spawn-bar" class="sb-spawn-bar" hidden>
    <div class="sb-spawn-list" role="group" aria-label="选择要创建的天体">${spawnChipsHtml}</div>
    <div class="sb-spawn-y" title="按住 Alt+滚轮也可随时调整 3D 投放高度 Y">
@@ -3439,6 +3523,7 @@ export function createCosmicSandbox({
     <button type="button" class="sb-pill" data-tool="orbit" aria-pressed="true" title="自由旋转平移视角 · 单击选天体微调，双击锁定追踪">探索</button>
     <button type="button" class="sb-pill" data-tool="spawn" aria-pressed="false" title="创建行星/恒星/脉冲星/黑洞/探测器：单击圆轨生成，拖拽拉弓发射">✦ 造物发射</button>
     <button type="button" class="sb-pill" data-tool="grab" aria-pressed="false" title="直接拎起黑洞、恒星或行星甩动对撞（也可按住 Shift 抓取）">抓取</button>
+    <button id="sb-scenario-btn" type="button" class="sb-pill sb-scen-toggle" aria-pressed="false" title="一键加载三体/双黑洞/弹弓/超新星剧本，随时释放天象与查看彩蛋">✦ 剧本/天象</button>
    </div>
    <div class="sb-divider" aria-hidden="true"></div>
    <div class="sb-group sb-speed-group" role="group" aria-label="时间流速">
@@ -3455,7 +3540,7 @@ export function createCosmicSandbox({
    </label>
    <label class="sb-slider" for="sb-gravity">
     <span>引力倍率 <output id="sb-gravity-out">1.0×</output></span>
-    <input id="sb-gravity" type="range" min="0.5" max="3" step="0.1" value="1">
+    <input id="sb-gravity" type="range" min="-2" max="3" step="0.1" value="1">
    </label>
    <div class="sb-divider" aria-hidden="true"></div>
    <div class="sb-group sb-toggles">
@@ -3490,11 +3575,21 @@ export function createCosmicSandbox({
   for (const btn of dock.querySelectorAll('[data-spawn]')) {
    btn.setAttribute('aria-pressed', String(btn.dataset.spawn === config.spawnType));
   }
+  for (const btn of dock.querySelectorAll('[data-scenario]')) {
+   btn.setAttribute('aria-pressed', String(btn.dataset.scenario === config.scenario));
+  }
   for (const btn of dock.querySelectorAll('[data-speed]')) {
    btn.setAttribute('aria-pressed', String(Number(btn.dataset.speed) === config.timeScale));
   }
-  dock.querySelector('#sb-spawn-bar').hidden = config.tool !== 'spawn';
+  dock.querySelector('#sb-scenario-btn').setAttribute('aria-pressed', String(config.showScenarios));
+  dock.querySelector('#sb-scenario-bar').hidden = !config.showScenarios;
+  dock.querySelector('#sb-spawn-bar').hidden = config.tool !== 'spawn' || config.showScenarios;
   dock.querySelector('#sb-y-out').textContent = config.spawnY === 0 ? '0' : (config.spawnY > 0 ? `+${config.spawnY}` : String(config.spawnY));
+
+  const eggBadge = dock.querySelector('#sb-egg-badge');
+  eggBadge.textContent = `★ 彩蛋 ${unlockedEggs.size} / ${SANDBOX_EGGS.length}`;
+  eggBadge.dataset.complete = String(unlockedEggs.size >= SANDBOX_EGGS.length);
+  eggBadge.title = SANDBOX_EGGS.map(eg => `${unlockedEggs.has(eg.id) ? '★' : '☆'} ${eg.title}：${eg.desc}`).join('\n');
 
   const massEl = dock.querySelector('#sb-bh-mass');
   syncBhMassSliderBounds();
@@ -3504,16 +3599,30 @@ export function createCosmicSandbox({
 
   const gravEl = dock.querySelector('#sb-gravity');
   gravEl.value = config.gravityScale;
-  dock.querySelector('#sb-gravity-out').textContent = `${config.gravityScale.toFixed(1)}×`;
+  const gOut = config.gravityScale < -0.05
+   ? `${config.gravityScale.toFixed(1)}× 斥力`
+   : Math.abs(config.gravityScale) <= 0.05
+    ? '0.0× 失重'
+    : `${config.gravityScale.toFixed(1)}×`;
+  dock.querySelector('#sb-gravity-out').textContent = gOut;
   setRangePct(gravEl);
+
+  const antiBtn = dock.querySelector('[data-phenom="anti-gravity"]');
+  if (antiBtn) {
+   antiBtn.setAttribute('aria-pressed', String(config.gravityScale < 0));
+   antiBtn.innerHTML = config.gravityScale < 0 ? '<span>⚡</span>恢复引力' : '<span>⚡</span>反重力炸花';
+  }
 
   dock.querySelector('#sb-bullet-btn').setAttribute('aria-pressed', String(config.autoBulletTime));
   dock.querySelector('#sb-overlay-btn').setAttribute('aria-pressed', String(config.overlays));
   dock.querySelector('#sb-telemetry').hidden = !config.overlays;
   dock.dataset.bullet = String(bulletTimer > 0.05);
+  dock.dataset.antigrav = String(config.gravityScale < 0);
 
   const hint = dock.querySelector('#sb-hint');
-  if (config.tool === 'spawn') {
+  if (config.showScenarios) {
+   hint.textContent = '宇宙剧本与天象 · 一键体验三体乱纪元、双黑洞引力波、引力弹弓靶场、反重力炸花与奇点大爆炸';
+  } else if (config.tool === 'spawn') {
    const def = SPAWN_CATALOG.find(c => c.id === config.spawnType);
    hint.textContent = `造物发射 · 「${def?.label || ''}」：单击自动入轨，按住向后拉弓按弯曲引力轨发射（右键平移 · Alt+滚轮调高度 Y）`;
   } else if (config.tool === 'grab') {
@@ -3535,6 +3644,12 @@ export function createCosmicSandbox({
 
  dock.querySelectorAll('[data-tool]').forEach(btn => { btn.onclick = () => setTool(btn.dataset.tool); });
  dock.querySelectorAll('[data-spawn]').forEach(btn => { btn.onclick = () => setSpawnType(btn.dataset.spawn); });
+ dock.querySelectorAll('[data-scenario]').forEach(btn => { btn.onclick = () => loadScenario(btn.dataset.scenario); });
+ dock.querySelectorAll('[data-phenom]').forEach(btn => { btn.onclick = () => triggerPhenomenon(btn.dataset.phenom); });
+ dock.querySelector('#sb-scenario-btn').onclick = () => {
+  config.showScenarios = !config.showScenarios;
+  updateDockUI();
+ };
  dock.querySelectorAll('[data-speed]').forEach(btn => { btn.onclick = () => setSpeed(Number(btn.dataset.speed)); });
  dock.querySelector('#sb-y-down').onclick = () => setSpawnY(config.spawnY - 6);
  dock.querySelector('#sb-y-up').onclick = () => setSpawnY(config.spawnY + 6);
@@ -3544,16 +3659,191 @@ export function createCosmicSandbox({
  dock.querySelector('#sb-overlay-btn').onclick = () => setOverlays(!config.overlays);
  dock.querySelector('#sb-reset-btn').onclick = () => {
   config.bhMass = baseBhMass;
+  config.gravityScale = 1.0;
+  config.scenario = 'default';
   reset();
   showBanner('时空复原', '六颗行星、瑶光与归墟已回到初始构型', 'reset');
  };
  dock.querySelector('#sb-exit-btn').onclick = () => exit();
 
  // ==========================================================================
- // 15. PUBLIC LIFECYCLE & CONTROL METHODS
+ // 15. SCENARIO PRESETS, INSTANT PHENOMENA & PUBLIC LIFECYCLE CONTROLS
  // ==========================================================================
+ function loadScenario(scenarioId) {
+  if (!active) return false;
+  if (!SANDBOX_SCENARIOS.some(s => s.id === scenarioId)) return false;
+  config.scenario = scenarioId;
+  config.showScenarios = false;
+  endDrag(false);
+  spawnDrag.active = false;
+  applySandboxScenario(scenarioId, {
+   initBase: () => initSimulation(lastSimTimeFromHost),
+   hide: id => {
+    const e = sim?.entities.find(x => x.id === id);
+    if (e) hideEntityVisual(e);
+   },
+   fling: (id, pos, vel) => flingBody(id, pos, vel),
+   setMass: (id, m) => setEntityMass(id, m),
+   setGravity: g => { config.gravityScale = g; },
+   setBhMass: m => {
+    config.bhMass = m;
+    if (sim?.bh?.alive) {
+     sim.bh.mass = m;
+     sim.bh.radius = baseBhRadius * bhVisualScale(m);
+     sim.bh.targetRadius = sim.bh.radius;
+    }
+   },
+   spawn: (type, pos, vel, opts) => spawnBody(type, pos, vel, opts),
+   follow: id => followBody(id),
+   select: id => selectEntity(id),
+   cameraView: preset => setCameraView(preset),
+   banner: (t, d, b) => showBanner(t, d, b)
+  });
+  computeAccelerations(sim.entities, true);
+  applyVisualPoses(0);
+  updateDockUI();
+  updateCamBarUI();
+  updateInspectorUI();
+  return true;
+ }
+
+ function triggerPhenomenon(id) {
+  if (!active || !sim) return false;
+
+  if (id === 'detonate-star') {
+   const target = (selectedEntity?.alive && selectedEntity.kind === 'star' ? selectedEntity : null)
+    || (sim.star?.alive ? sim.star : null)
+    || sim.entities.filter(e => e.alive && e.kind === 'star').sort((a, b) => b.mass - a.mass)[0];
+   if (target) {
+    return detonateBody(target.id);
+   }
+   const tempStar = spawnSingleEntity('star-red', sim.barycenter.clone(), new THREE.Vector3(), { mass: 9.5, radius: 5.8, name: '临爆红巨星' });
+   if (tempStar) return detonateBody(tempStar.id);
+   return false;
+  }
+
+  if (id === 'comet-storm') {
+   const centerAttr = sim.entities.filter(e => e.alive && (e.kind === 'bh' || e.kind === 'star')).sort((a, b) => b.mass - a.mass)[0];
+   const targetPos = centerAttr ? centerAttr.pos : sim.barycenter;
+   const baseAngle = rand() * Math.PI * 2;
+   for (let i = 0; i < 8; i++) {
+    const a = baseAngle + (i - 3.5) * 0.14;
+    const dist = 84 + rand() * 24;
+    const pos = new THREE.Vector3(targetPos.x + Math.cos(a) * dist, (rand() - 0.5) * 14, targetPos.z + Math.sin(a) * dist);
+    const toTarget = targetPos.clone().sub(pos).normalize();
+    const tang = new THREE.Vector3(-toTarget.z, 0, toTarget.x);
+    const vel = toTarget.multiplyScalar(17 + rand() * 5).addScaledVector(tang, 6.5 + (rand() - 0.5) * 4);
+    spawnSingleEntity('comet', pos, vel, { single: true, name: `潮汐彗星 #${i + 1}` });
+   }
+   showBanner('天象 · 彗星潮汐雨', '8 颗冰核彗星已从深空外缘扑向核心引力井！', 'tde');
+   updateDockUI();
+   return true;
+  }
+
+  if (id === 'summon-pulsar') {
+   const a = rand() * Math.PI * 2;
+   const pos = new THREE.Vector3(Math.cos(a) * 58, 7.5, Math.sin(a) * 58);
+   const tang = new THREE.Vector3(-Math.sin(a), -0.14, Math.cos(a)).normalize();
+   const vel = tang.multiplyScalar(13.5).addScaledVector(pos.clone().normalize(), -5.5);
+   const psr = spawnSingleEntity('neutron', pos, vel, { mass: 2.5, radius: 1.4, name: `灯塔脉冲星 #${++typeCounters.psr || (typeCounters.psr = 1)}`, initialFlare: 1.2 });
+   if (psr) selectEntity(psr);
+   showBanner('天象 · 脉冲星灯塔', `${psr?.name || '脉冲星'} 正以双极光束斜切扫射星系`, 'gw');
+   updateDockUI();
+   return true;
+  }
+
+  if (id === 'anti-gravity') {
+   if (config.gravityScale < 0) {
+    setGravityScale(1.0);
+    showBanner('引力恢复正常', '万有引力已恢复 1.0×，天体重新开始相互吸引', 'info');
+   } else {
+    setGravityScale(-1.2);
+    applyBlastImpulse(sim.barycenter, 7.5, 140);
+    spawnShockwave(sim.barycenter, { maxRadius: 68, flashSize: 28, dur: 2.6, colorA: [1.0, 0.86, 0.96], colorB: [0.85, 0.36, 1.0] });
+    triggerGravityWave(sim.barycenter, 0.85);
+   }
+   return true;
+  }
+
+  if (id === 'big-bang') {
+   stats.bigBangs++;
+   const origin = (sim.entities.find(e => e.alive && e.kind === 'bh')?.pos || sim.barycenter || new THREE.Vector3()).clone();
+   // Clear all old bodies & reset gravity
+   selectEntity(null);
+   followBody(null);
+   config.gravityScale = 1.0;
+   config.scenario = 'default';
+   clearDynamicEntities();
+   clearDebris();
+   for (const e of sim.entities) {
+    if (e.isOriginal && e.alive) hideEntityVisual(e);
+   }
+   voidPrompted = false;
+   threeBodyActive = false;
+
+   // Colossal polychromatic Big Bang dawn particles bursting outward beyond the newborn star's photosphere!
+   for (let i = 0; i < 1400; i++) {
+    const theta = rand() * Math.PI * 2;
+    const u = rand() * 2 - 1;
+    const s = Math.sqrt(Math.max(0, 1 - u * u));
+    const dx = Math.cos(theta) * s, dy = u * 0.45, dz = Math.sin(theta) * s;
+    const rOff = 6.4 + rand() * 8.5;
+    const spd = 11 + Math.pow(rand(), 0.72) * 24;
+    const swirl = 4.5 + rand() * 4.0;
+    const tx = -Math.sin(theta), tz = Math.cos(theta);
+    const band = i % 3;
+    const col = band === 0 ? [0.55, 0.88, 1.0] : band === 1 ? [1.0, 0.78, 0.42] : [0.88, 0.56, 1.0];
+    spawnDebris(
+     origin.x + dx * rOff, origin.y + dy * rOff, origin.z + dz * rOff,
+     dx * spd + tx * swirl, dy * spd, dz * spd + tz * swirl,
+     col[0], col[1], col[2], 1.5 + rand() * 2.8, 0.88, 24 + rand() * 18, 1
+    );
+   }
+   spawnShockwave(origin, { maxRadius: 88, flashSize: 56, dur: 3.6, colorA: [1.0, 0.96, 0.88], colorB: [0.46, 0.82, 1.0] });
+   spawnShockwave(origin, { maxRadius: 68, flashSize: 42, dur: 2.9, colorA: [0.96, 0.80, 1.0], colorB: [0.76, 0.42, 1.0], tiltX: Math.PI * 0.3, tiltZ: 0.4 });
+   spawnShockwave(origin, { maxRadius: 54, flashSize: 34, dur: 2.5, colorA: [1.0, 0.88, 0.56], colorB: [1.0, 0.46, 0.18], tiltX: Math.PI * 0.7, tiltZ: -0.5 });
+   triggerGravityWave(origin, 1.25);
+   bloomSurge = Math.min(0.55, bloomSurge + 0.38);
+   rippleSurge = Math.min(1.0, rippleSurge + 0.85);
+   triggerBulletTime(1.6, 0.22);
+
+   // Birth a brand-new central star + 6 fresh orbiting proto-planets + 4 outer comets!
+   const newStar = spawnSingleEntity('star-blue', origin, new THREE.Vector3(), { mass: 6.8, radius: 5.2, name: '创世主星', initialFlare: 1.8 });
+   const G = Math.abs(gUnit());
+   const protoDefs = [
+    { type: 'rocky', r: 17, name: '新生熔岩星' },
+    { type: 'rocky', r: 26, name: '新生海洋星' },
+    { type: 'gas', r: 39, name: '新生环巨星' },
+    { type: 'rocky', r: 50, name: '新生冰原星' },
+    { type: 'gas', r: 64, name: '新生外巨星' },
+    { type: 'rocky', r: 78, name: '新生边疆星' }
+   ];
+   protoDefs.forEach((pd, idx) => {
+    const a = idx * 1.12 + rand() * 0.5;
+    const p = origin.clone().add(new THREE.Vector3(Math.cos(a) * pd.r, (rand() - 0.5) * 2.2, Math.sin(a) * pd.r));
+    const vOrb = Math.sqrt((G * newStar.mass) / pd.r);
+    const v = new THREE.Vector3(-Math.sin(a) * vOrb, 0, Math.cos(a) * vOrb);
+    spawnSingleEntity(pd.type, p, v, { name: pd.name });
+   });
+   for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const p = origin.clone().add(new THREE.Vector3(Math.cos(a) * 90, (rand() - 0.5) * 6, Math.sin(a) * 90));
+    const vOrb = Math.sqrt((G * newStar.mass) / 90) * 0.88;
+    spawnSingleEntity('comet', p, new THREE.Vector3(-Math.sin(a) * vOrb, 0, Math.cos(a) * vOrb), { single: true });
+   }
+
+   setCameraView('overview');
+   unlockEgg('big-bang', '奇点大爆炸重开宇宙：创世主星与全新六星原行星盘已诞生！');
+   updateDockUI();
+   return true;
+  }
+
+  return false;
+ }
+
  function setTool(tool) {
   config.tool = tool === 'grab' ? 'grab' : tool === 'spawn' ? 'spawn' : 'orbit';
+  if (config.tool === 'spawn') config.showScenarios = false;
   if (config.tool !== 'grab' && drag.target) endDrag(false);
   if (config.tool !== 'spawn') {
    spawnDrag.active = false;
@@ -3566,6 +3856,7 @@ export function createCosmicSandbox({
  function setSpawnType(typeId) {
   if (!SPAWN_CATALOG.some(c => c.id === typeId)) return;
   config.spawnType = typeId;
+  config.showScenarios = false;
   if (config.tool !== 'spawn') config.tool = 'spawn';
   updateDockUI();
  }
@@ -3589,7 +3880,12 @@ export function createCosmicSandbox({
  }
 
  function setGravityScale(scale) {
-  config.gravityScale = Math.max(-2.0, Math.min(3.0, Number(scale) || 0));
+  const prev = config.gravityScale;
+  config.gravityScale = Math.max(-2.0, Math.min(3.0, Number(scale)));
+  if (Number.isNaN(config.gravityScale)) config.gravityScale = 1.0;
+  if (config.gravityScale < -0.05 && prev >= -0.05) {
+   unlockEgg('anti-gravity', `引力已翻转至 ${config.gravityScale.toFixed(1)}×，整个星系进入斥力炸花态！`);
+  }
   updateDockUI();
  }
 
@@ -3740,6 +4036,9 @@ export function createCosmicSandbox({
   spawnStem.visible = false;
   aimArrow.visible = false;
   previewLine.visible = false;
+  config.showScenarios = false;
+  config.gravityScale = 1.0;
+  config.scenario = 'default';
   dock.hidden = true;
   camBar.hidden = true;
   inspector.hidden = true;
@@ -3893,7 +4192,14 @@ export function createCosmicSandbox({
    kilonovae: stats.kilonovae,
    collapses: stats.collapses,
    slingshots: stats.slingshots,
+   bigBangs: stats.bigBangs,
    spawned: stats.spawned,
+   scenario: config.scenario,
+   unlockedEggs: [...unlockedEggs],
+   eggCount: unlockedEggs.size,
+   totalEggs: SANDBOX_EGGS.length,
+   threeBodyActive,
+   antiGravityActive: config.gravityScale < 0,
    activeDebris: activeDebrisCount,
    bhFlare: +(sim.bh?.flare || 0).toFixed(3),
    starAlive: !!sim.star?.alive,
@@ -3961,6 +4267,8 @@ export function createCosmicSandbox({
   get rippleStrength() { return active ? rippleSurge : 0; },
   get followingId() { return followEntity?.id || null; },
   get selectedId() { return selectedEntity?.id || null; },
+  get scenario() { return config.scenario; },
+  get unlockedEggs() { return [...unlockedEggs]; },
   isPlanetAlive(id) {
    if (!active || !sim) return true;
    const p = sim.entities.find(x => x.id === id);
@@ -3979,6 +4287,8 @@ export function createCosmicSandbox({
   setGravityScale,
   setOverlays,
   setAutoBulletTime,
+  loadScenario,
+  triggerPhenomenon,
   spawnBody,
   selectEntity,
   followBody,

@@ -212,6 +212,36 @@ body[data-sandbox="true"] .planet-label {
  background: #6ef2d6;
  box-shadow: 0 0 14px rgba(110, 242, 212, 0.95);
 }
+#sandbox-banner[data-kind="egg"] {
+ border-color: rgba(246, 206, 118, 0.72);
+ box-shadow: inset 0 1px 0 rgba(255, 238, 190, 0.25), 0 0 28px rgba(246, 198, 102, 0.22), 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+#sandbox-banner[data-kind="egg"] .sb-banner-dot {
+ background: #ffd87a;
+ box-shadow: 0 0 16px rgba(255, 216, 122, 1);
+}
+#sandbox-banner .sb-banner-body {
+ min-width: 0;
+ flex: 1;
+}
+#sandbox-banner .sb-banner-act {
+ pointer-events: auto;
+ flex: 0 0 auto;
+ padding: 6px 12px;
+ border-radius: 999px;
+ border: 1px solid rgba(250, 208, 128, 0.75);
+ background: linear-gradient(120deg, rgba(212, 148, 62, 0.42), rgba(126, 78, 196, 0.42));
+ color: #fff4d8;
+ font-size: 11px;
+ letter-spacing: 0.4px;
+ white-space: nowrap;
+ transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+#sandbox-banner .sb-banner-act:hover {
+ transform: translateY(-1px);
+ border-color: #ffe6aa;
+ background: linear-gradient(120deg, rgba(235, 168, 72, 0.62), rgba(146, 94, 224, 0.62));
+}
 #sandbox-banner strong {
  display: block;
  font-size: 12px;
@@ -450,13 +480,141 @@ body[data-sandbox="true"] .planet-label {
  bottom: 18px;
  transform: translateX(-50%);
  z-index: 24;
- width: min(1100px, calc(100vw - 40px));
+ width: min(1240px, calc(100vw - 36px));
  display: grid;
  gap: 7px;
  pointer-events: auto;
 }
 #sandbox-dock[hidden] {
  display: none;
+}
+
+/* Scenario & Phenomena Drawer above Main Dock */
+.sb-scenario-bar {
+ display: grid;
+ gap: 7px;
+ padding: 9px 13px;
+ border-radius: var(--ui-r-card, 8px);
+ border: 1px solid rgba(196, 166, 244, 0.36);
+ background:
+  radial-gradient(ellipse 72% 110% at 50% 0%, rgba(176, 142, 244, 0.13), transparent 74%),
+  linear-gradient(180deg, rgba(14, 16, 36, 0.93), rgba(7, 10, 22, 0.96));
+ backdrop-filter: blur(18px);
+ box-shadow: inset 0 1px 0 rgba(228, 214, 255, 0.14), 0 12px 34px rgba(0, 0, 0, 0.46);
+}
+.sb-scenario-bar[hidden] {
+ display: none;
+}
+.sb-scen-row {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 7px;
+}
+.sb-drawer-label {
+ font-size: 10px;
+ letter-spacing: 0.8px;
+ color: #9db4cc;
+ min-width: 50px;
+}
+.sb-scen-list,
+.sb-phen-list {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 5px;
+ flex: 1;
+}
+.sb-scen-chip {
+ display: inline-flex;
+ align-items: center;
+ gap: 5px;
+ min-height: 28px;
+ padding: 0 9px;
+ border-radius: calc(var(--ui-r, 4px) + 1px);
+ border: 1px solid rgba(176, 202, 232, 0.22);
+ background: rgba(18, 28, 48, 0.58);
+ color: #c8daeb;
+ font-size: 11px;
+ white-space: nowrap;
+ transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.sb-scen-chip:hover {
+ color: #fff;
+ border-color: rgba(206, 186, 250, 0.56);
+ background: rgba(42, 38, 78, 0.72);
+}
+.sb-scen-chip[aria-pressed="true"] {
+ color: #f6f0ff;
+ border-color: rgba(204, 172, 255, 0.76);
+ background: linear-gradient(180deg, rgba(96, 72, 164, 0.48), rgba(52, 38, 96, 0.62));
+}
+.sb-scen-chip em {
+ font-style: normal;
+ font-size: 9px;
+ padding: 1px 5px;
+ border-radius: 999px;
+ background: rgba(184, 206, 238, 0.14);
+ color: #a8c6e4;
+}
+.sb-egg-badge {
+ margin-left: auto;
+ padding: 4px 10px;
+ border-radius: 999px;
+ border: 1px solid rgba(242, 202, 118, 0.42);
+ background: rgba(242, 196, 102, 0.12);
+ color: #f7d894;
+ font-size: 10.5px;
+ font-variant-numeric: tabular-nums;
+ white-space: nowrap;
+ cursor: help;
+}
+.sb-egg-badge[data-complete="true"] {
+ border-color: rgba(255, 224, 134, 0.88);
+ background: rgba(242, 194, 88, 0.26);
+ color: #fff2c4;
+ box-shadow: 0 0 16px rgba(255, 210, 108, 0.32);
+}
+.sb-phen-btn {
+ display: inline-flex;
+ align-items: center;
+ gap: 5px;
+ min-height: 28px;
+ padding: 0 10px;
+ border-radius: calc(var(--ui-r, 4px) + 1px);
+ border: 1px solid rgba(176, 206, 232, 0.24);
+ background: rgba(20, 32, 52, 0.64);
+ color: #d4e4f4;
+ font-size: 11px;
+ white-space: nowrap;
+ transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.sb-phen-btn:hover {
+ color: #fff;
+ border-color: rgba(210, 232, 255, 0.62);
+ background: rgba(34, 54, 84, 0.82);
+}
+.sb-phen-danger {
+ border-color: rgba(248, 138, 92, 0.42);
+ color: #ffd4ba;
+}
+.sb-phen-danger:hover {
+ border-color: rgba(255, 162, 114, 0.8);
+ background: rgba(132, 42, 28, 0.56);
+}
+.sb-phen-gold[aria-pressed="true"] {
+ border-color: rgba(228, 134, 255, 0.82);
+ background: rgba(124, 42, 152, 0.56);
+ color: #fde8ff;
+}
+.sb-phen-dawn {
+ border-color: rgba(244, 198, 120, 0.44);
+ color: #ffe8bc;
+ background: linear-gradient(120deg, rgba(84, 58, 28, 0.42), rgba(58, 36, 98, 0.46));
+}
+.sb-phen-dawn:hover {
+ border-color: rgba(255, 222, 150, 0.84);
+ background: linear-gradient(120deg, rgba(130, 86, 36, 0.62), rgba(92, 54, 146, 0.64));
 }
 
 /* Spawn Palette Drawer above Main Dock */
@@ -588,8 +746,8 @@ body[data-sandbox="true"] .planet-label {
  flex-wrap: wrap;
  align-items: center;
  justify-content: center;
- gap: 9px;
- padding: 9px 13px;
+ gap: 7px;
+ padding: 8px 12px;
  border-radius: calc(var(--ui-r-card, 8px) + 2px);
  border: 1px solid var(--line-strong, rgba(186, 214, 238, 0.3));
  background:
@@ -601,6 +759,10 @@ body[data-sandbox="true"] .planet-label {
 #sandbox-dock[data-bullet="true"] .sb-bar {
  border-color: rgba(242, 184, 112, 0.58);
  box-shadow: inset 0 1px 0 rgba(255, 226, 186, 0.2), 0 0 28px rgba(242, 178, 98, 0.16), 0 16px 42px rgba(0, 0, 0, 0.5);
+}
+#sandbox-dock[data-antigrav="true"] .sb-bar {
+ border-color: rgba(214, 134, 255, 0.64);
+ box-shadow: inset 0 1px 0 rgba(240, 200, 255, 0.22), 0 0 28px rgba(196, 108, 255, 0.22), 0 16px 42px rgba(0, 0, 0, 0.5);
 }
 
 .sb-group {
@@ -652,6 +814,11 @@ body[data-sandbox="true"] .planet-label {
  border-color: rgba(242, 194, 132, 0.68);
  background: linear-gradient(180deg, rgba(168, 114, 56, 0.42), rgba(98, 64, 30, 0.52));
 }
+.sb-pill.sb-scen-toggle[aria-pressed="true"] {
+ color: #f6ecff;
+ border-color: rgba(202, 166, 255, 0.74);
+ background: linear-gradient(180deg, rgba(102, 72, 168, 0.48), rgba(56, 38, 102, 0.62));
+}
 .sb-act.sb-exit {
  border-color: rgba(228, 152, 136, 0.34);
  color: #f0cfc8;
@@ -665,7 +832,7 @@ body[data-sandbox="true"] .planet-label {
 .sb-slider {
  display: grid;
  gap: 4px;
- min-width: 118px;
+ min-width: 106px;
 }
 .sb-slider > span {
  display: flex;
@@ -721,6 +888,7 @@ body[data-sandbox="true"] .planet-label {
 /* Theme harmonization across Atlas / Nebula / Cinema */
 body[data-look="atlas"] #sandbox-dock .sb-bar,
 body[data-look="atlas"] #sandbox-dock .sb-spawn-bar,
+body[data-look="atlas"] #sandbox-dock .sb-scenario-bar,
 body[data-look="atlas"] #sandbox-dock .sb-telemetry,
 body[data-look="atlas"] #sb-cam-bar .sb-cam-views,
 body[data-look="atlas"] #sb-inspector,
@@ -730,6 +898,8 @@ body[data-look="atlas"] .sb-pill,
 body[data-look="atlas"] .sb-chip,
 body[data-look="atlas"] .sb-act,
 body[data-look="atlas"] .sb-spawn-chip,
+body[data-look="atlas"] .sb-scen-chip,
+body[data-look="atlas"] .sb-phen-btn,
 body[data-look="atlas"] .sb-cam-btn {
  border-radius: 0;
 }
@@ -775,9 +945,22 @@ body[data-look="cinema"] #sandbox-dock .sb-bar {
   padding: 7px 9px;
   gap: 6px;
  }
- .sb-spawn-bar {
+ .sb-spawn-bar,
+ .sb-scenario-bar {
   padding: 6px 8px;
   gap: 5px;
+ }
+ .sb-drawer-label {
+  display: none;
+ }
+ .sb-scen-chip,
+ .sb-phen-btn {
+  min-height: 25px;
+  padding: 0 7px;
+  font-size: 10px;
+ }
+ .sb-scen-chip em {
+  display: none;
  }
  .sb-spawn-chip {
   min-height: 26px;

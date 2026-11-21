@@ -233,7 +233,69 @@ async function runChecks() {
   report.screenshots.push('09-spawn-inspector-kilonova.png');
   mark('kilonova-self-collapse-inspector-and-follow');
 
-  // 10. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
+  // 10. NEW Phase 2: Three-Body Chaos Scenario + Real-Time Climate Era Labels + Scenario Drawer UI
+  await page.click('#sb-scenario-btn');
+  await page.waitForSelector('#sb-scenario-bar', { state: 'visible' });
+  await page.click('[data-scenario="threebody"]');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().threeBodyActive === true && window.observatory.sandbox.unlockedEggs.includes('three-body'), null, { timeout: 8000 });
+  await page.waitForTimeout(700);
+  // Open drawer cleanly for capture so we visually verify Scenario/Phenomena drawer + 3 stars + era labels
+  await page.click('#sb-scenario-btn');
+  await page.waitForSelector('#sb-scenario-bar', { state: 'visible' });
+  const tbStats = await page.evaluate(() => ({
+   stats: window.observatory.sandbox.stats(),
+   eraLabels: [...document.querySelectorAll('#labels .planet-label small')].map(el => el.textContent)
+  }));
+  report.metrics.threeBody = tbStats;
+  assert.equal(tbStats.stats.aliveStars, 3, 'Three-Body scenario must have 3 alive stars');
+  assert.ok(tbStats.stats.unlockedEggs.includes('three-body'), 'Three-Body Easter egg must unlock');
+  assert.ok(tbStats.eraLabels.some(t => /纪元|三日/.test(t)), `Planet labels must display live Three-Body climate eras (got ${tbStats.eraLabels.join(', ')})`);
+  await page.screenshot({ path: path.join(OUT, '10-threebody-chaos-drawer.png') });
+  report.screenshots.push('10-threebody-chaos-drawer.png');
+  mark('phase2-threebody-scenario-and-era-egg');
+
+  // 11. NEW Phase 2: Gravitational Slingshot Range -> Auto +Δv Boost & Slingshot Easter Egg
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.loadScenario('slingshot');
+   sb.setSpeed(1.6);
+  });
+  await page.waitForFunction(() => window.observatory.sandbox.stats().slingshots >= 1 && window.observatory.sandbox.unlockedEggs.includes('slingshot-master'), null, { timeout: 14000 });
+  await page.waitForTimeout(350);
+  const ssStats = await page.evaluate(() => window.observatory.sandbox.stats());
+  report.metrics.slingshot = ssStats;
+  assert.ok(ssStats.slingshots >= 1, 'Slingshot range must achieve real gravity-assist boost');
+  assert.ok(ssStats.unlockedEggs.includes('slingshot-master'), 'Slingshot Easter egg must unlock');
+  await page.screenshot({ path: path.join(OUT, '11-slingshot-range-boost.png') });
+  report.screenshots.push('11-slingshot-range-boost.png');
+  mark('phase2-slingshot-range-and-egg');
+
+  // 12. NEW Phase 2: Anti-Gravity Fireworks + Comet Storm + Big Bang Rebirth -> All 5/5 Easter Eggs!
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.triggerPhenomenon('anti-gravity');
+   sb.triggerPhenomenon('comet-storm');
+  });
+  await page.waitForTimeout(550);
+  const agStats = await page.evaluate(() => window.observatory.sandbox.stats());
+  assert.equal(agStats.antiGravityActive, true, 'anti-gravity phenomenon must invert gravity');
+  assert.ok(agStats.unlockedEggs.includes('anti-gravity'), 'anti-gravity Easter egg must unlock');
+
+  await page.evaluate(() => {
+   window.observatory.sandbox.triggerPhenomenon('big-bang');
+  });
+  await page.waitForTimeout(550);
+  const bbStats = await page.evaluate(() => window.observatory.sandbox.stats());
+  report.metrics.bigBang = bbStats;
+  assert.ok(bbStats.bigBangs >= 1, 'Big Bang rebirth must execute');
+  assert.equal(bbStats.eggCount, bbStats.totalEggs, `all ${bbStats.totalEggs} sandbox Easter eggs should be unlocked (got ${bbStats.unlockedEggs.join(', ')})`);
+  assert.ok(bbStats.activeDebris >= 800, `Big Bang must unleash cosmic dawn debris (got ${bbStats.activeDebris})`);
+  assert.ok(bbStats.totalBodies >= 10, `Big Bang must birth newborn central star + proto-planetary disk (got ${bbStats.totalBodies})`);
+  await page.screenshot({ path: path.join(OUT, '12-big-bang-rebirth.png') });
+  report.screenshots.push('12-big-bang-rebirth.png');
+  mark('phase2-antigravity-comet-storm-bigbang-all-5-eggs');
+
+  // 13. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
   await page.click('[data-tool="grab"]');
   const toolAfter = await page.evaluate(() => window.observatory.sandbox.tool);
   assert.equal(toolAfter, 'grab', 'grab tool button should switch mode');

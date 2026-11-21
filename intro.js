@@ -21,7 +21,7 @@ export const INTRO_TIMING={
  camera:[0,4.2],camYaw:.55,camScale:1.7,camLift:46
 };
 
-export function createIntro({THREE,scene,camera,controls,renderer,star,corona,halo,bodies,starField,belt,LOOK,skyIntensity,haloOpacity,onEnd}){
+export function createIntro({THREE,scene,camera,controls,renderer,star,corona,halo,bodies,blackHole,starField,belt,LOOK,skyIntensity,haloOpacity,onEnd}){
  const T=INTRO_TIMING;
  const order=[...bodies].sort((a,b)=>a.def.orbit-b.def.orbit);
  const starScale=star.scale.clone(),coronaScale=corona.scale.clone();
@@ -44,6 +44,7 @@ export function createIntro({THREE,scene,camera,controls,renderer,star,corona,ha
   if(belt)belt.material.opacity=0;
   star.scale.copy(starScale).multiplyScalar(.4);corona.scale.copy(coronaScale).multiplyScalar(.4);halo.material.opacity=0;
   for(const b of bodies)b.root.scale.setScalar(.001);
+  if(blackHole)blackHole.root.scale.setScalar(.001);
  }
  function prime(){if(phase!=='idle')return;phase='primed';document.body.classList.add('intro');listen(true);dark();}
  function start(now){
@@ -75,6 +76,7 @@ export function createIntro({THREE,scene,camera,controls,renderer,star,corona,ha
    const appear=T.sweep[0]+(T.sweep[1]-T.sweep[0])*(i+lead)/(n-1+2*lead)+T.planetLag;
    b.root.scale.setScalar(Math.max(.001,outBack(span(t,appear,appear+T.planetGrow))));
   });
+  if(blackHole){const bhAppear=T.sweep[1]-.15;blackHole.root.scale.setScalar(Math.max(.001,outCubic(span(t,bhAppear,bhAppear+.9))));}
   if(wave){
    const f=clamp01(front/(n-1)),k=f*(n-1),i=Math.min(n-2,Math.floor(k));
    const r=front<=0?THREE.MathUtils.lerp(6,order[0].def.orbit,clamp01(1+front/lead)):front>=n-1?order[n-1].def.orbit*(1+.08*(front-n+1)):THREE.MathUtils.lerp(order[i].def.orbit,order[i+1].def.orbit,k-i);
@@ -97,6 +99,7 @@ export function createIntro({THREE,scene,camera,controls,renderer,star,corona,ha
   if(belt)belt.material.opacity=.28;
   star.scale.copy(starScale);corona.scale.copy(coronaScale);halo.material.opacity=haloOpacity();
   for(const b of bodies)b.root.scale.setScalar(1);
+  if(blackHole)blackHole.root.scale.setScalar(1);
   if(wave){scene.remove(wave);wave.geometry.dispose();wave.material.dispose();wave=null;}
   document.body.classList.remove('intro');
   if(wasPlaying&&resetCamera){camera.position.copy(finalPos);controls.target.copy(finalTarget);camera.lookAt(finalTarget);}

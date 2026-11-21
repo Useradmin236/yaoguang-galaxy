@@ -1,31 +1,129 @@
-/* A small field notebook, kept separate from the navigation and service cards. */
-#journal-toggle{position:fixed;right:157px;bottom:92px;z-index:13;display:flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--line);border-radius:var(--ui-r,3px);background:var(--glass);box-shadow:var(--ui-inner);color:var(--soft);font-size:var(--fs-s,11px);letter-spacing:.6px;backdrop-filter:blur(12px);transition:opacity var(--ui-base) var(--ui-ease),color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease)}
-#journal-toggle:hover,#journal-toggle[aria-expanded=true]{color:var(--ink);border-color:var(--line-strong)}.journal-icon{font-size:14px;line-height:1}.journal-count{font:10px Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--muted);padding-left:1px}#journal-toggle[data-unread=true]:after{content:'';position:absolute;right:6px;top:5px;width:4px;height:4px;background:#cee4ec;border-radius:50%;box-shadow:0 0 8px #94c3dd99}
-#observation-journal{width:min(566px,calc(100vw - 32px));max-height:calc(100svh - 66px);padding:29px 32px 25px;color:#d7e5ed;background:linear-gradient(140deg,#142233f7,#0b1522fc 65%);border:1px solid #9bbacf4d;border-top-color:#aac8d477;border-radius:3px 18px 3px 3px;box-shadow:0 32px 120px #0009;scrollbar-width:thin;scrollbar-color:#526d7e transparent;overflow:auto;overscroll-behavior:contain}
-#observation-journal::backdrop{background:#020812a3;backdrop-filter:blur(5px)}.journal-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.journal-kicker{margin:0 0 8px;font:10px/1.7 Consolas,monospace;letter-spacing:2.4px;color:#9bb7c7}#journal-title{font:400 24px/1.6 Yaoguang,SimSun,serif;letter-spacing:2px;margin:0}#journal-close{display:grid;place-items:center;width:40px;height:40px;margin:-8px -10px 0 0;padding:0;font:24px/1 'Segoe UI',sans-serif;color:#9fb5c4;transition:color var(--ui-fast) var(--ui-ease)}#journal-close:hover{color:var(--ink)}.journal-intro{font-size:11px;line-height:1.95;color:#a6bac7;margin:12px 0 23px;max-width:420px}.journal-summary{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#a0b8c7;letter-spacing:1px}.journal-summary strong{font:11px Consolas,monospace;color:#cadde5}
-#journal-voyage{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:14px 0 24px;padding:10px 0;border-bottom:1px solid #9eb7c529;border-top:1px solid #9eb7c529}#journal-voyage span{font:11px/1.6 SimSun,serif;text-align:center;letter-spacing:1px;color:#8195a6}#journal-voyage span:before{content:'';display:inline-block;width:3px;height:3px;margin:0 6px 2px 0;border:1px solid #617b8a;border-radius:50%}#journal-voyage span[data-visited=true]{color:#c2d4de}#journal-voyage span[data-visited=true]:before{background:#b8d7dc;border-color:#b8d7dc;box-shadow:0 0 6px #a0d2d35c}
-#journal-entries{display:grid;gap:24px}#journal-entries article{display:grid;grid-template-columns:23px 1fr;gap:12px}.journal-number{font:10px/24px Consolas,monospace;color:#718ea0}#journal-entries h3{font:400 16px/1.5 Yaoguang,SimSun,serif;letter-spacing:1px;margin:0 0 6px;color:#9eb3c2}.journal-story{font-size:11px;line-height:1.95;color:#91a7b6;margin:0}.journal-status{font-size:10.5px;line-height:1.8;color:#84a0b0;margin:8px 0 0}#journal-entries article[data-unlocked=true] h3{color:#d2e7ed}#journal-entries article[data-unlocked=true] .journal-number{color:#a0cdd1}#journal-entries article[data-unlocked=true] .journal-story{color:#b4cbd5}#journal-entries article[data-unlocked=true] .journal-status{color:#8babba}
-#journal-storage{font-size:10.5px;line-height:1.9;color:#90a9b8;border-top:1px solid #adc4d329;padding-top:20px;margin:23px 0 14px}#journal-return{width:100%;display:flex;justify-content:space-between;align-items:center;min-height:40px;padding:11px 14px;border:1px solid #9bbdce3b;border-radius:var(--ui-r,3px);transition:background-color var(--ui-fast) var(--ui-ease);background:#80a7bd12;color:#cadde8;font-size:11px}#journal-return:hover{background:#80a7bd24}
-#discovery-notice{position:fixed;right:24px;bottom:146px;width:258px;padding:16px 20px;text-align:left;display:flex;flex-direction:column;gap:6px;z-index:16;border:1px solid #a3c3d247;border-left:2px solid #a4d4d7a1;background:linear-gradient(120deg,#142b3aed,#0a1626f5);box-shadow:0 14px 40px #0004;backdrop-filter:blur(14px);border-radius:2px 11px 2px 2px}#discovery-notice small{font-size:10px;letter-spacing:2px;color:#9bbacb}#discovery-notice strong{font:400 17px/1.6 Yaoguang,SimSun,serif;letter-spacing:1px;color:#d5e8ed}#discovery-notice>span{font-size:11px;color:#a9c0cf}
-body.clean #journal-toggle{opacity:.55}body.clean #discovery-notice{display:none}
-/* Third summary row (合计 NN / 08) and the completed journal: closing line, ✦ before the title. */
-.journal-summary-total{margin-top:6px;padding-top:6px;border-top:1px dashed #9eb7c51f}.journal-summary-total strong{display:inline-flex;align-items:center;gap:5px}
-#journal-tally[data-complete=true] strong{color:#e1eef4}.journal-tally-mark{font-size:10px;line-height:1;color:var(--accent,#d6ecf4);text-shadow:0 0 6px color-mix(in srgb,var(--accent,#9fd0e8) 60%,transparent)}
-#observation-journal[data-complete=true] #journal-title:before{content:'✦';display:inline-block;margin-right:10px;font-size:.6em;vertical-align:.25em;color:var(--accent,#d6ecf4);text-shadow:0 0 8px color-mix(in srgb,var(--accent,#9fd0e8) 60%,transparent)}
-#observation-journal[data-complete=true] .journal-intro{color:#c3d6e0}
-@media(prefers-reduced-motion:reduce){.journal-tally-mark,#observation-journal[data-complete=true] #journal-title:before{text-shadow:none}}
-body[data-look=atlas] #observation-journal{border-radius:0;background:#071726fa}body[data-look=nebula] #observation-journal{background:linear-gradient(140deg,#251d35f7,#101827fc);border-color:#bbb0d54d}body[data-look=cinema] #observation-journal{background:linear-gradient(140deg,#20252af7,#0b1522fc);border-color:#bbae954d}
-@media(max-width:760px){#journal-toggle{right:139px;bottom:105px;font-size:10px;padding:7px 10px;gap:6px}body[data-inspect=true] #journal-toggle,body[data-mode=planet] #journal-toggle,body[data-mode=star] #journal-toggle,body[data-mode=moon] #journal-toggle{left:125px;right:auto;bottom:auto;top:171px}#discovery-notice{right:16px;top:210px;bottom:auto;width:230px;padding:12px 16px}#observation-journal{width:calc(100vw - 24px);max-height:calc(100svh - 30px);padding:22px 22px 20px;border-radius:3px 14px 3px 3px}#journal-title{font-size:22px;letter-spacing:1px}.journal-intro{margin-bottom:18px}#journal-voyage{gap:3px;margin-bottom:22px}#journal-voyage span{font-size:10px;letter-spacing:0}#journal-voyage span:before{margin-right:4px}#journal-entries{gap:22px}#journal-entries article{gap:9px;grid-template-columns:18px 1fr}.journal-story{font-size:11px;line-height:1.9}#journal-entries h3{font-size:16px}}
-@media(max-width:360px){#journal-toggle{left:125px;right:auto;bottom:auto;top:163px!important}#observation-journal{padding:20px 17px}#journal-title{font-size:20px}#journal-voyage span:before{display:none}}
+/* Field notebook & sky-event readout: refined observatory instrument styling. */
+#journal-toggle{position:fixed;right:158px;bottom:92px;z-index:13;display:flex;align-items:center;gap:8px;min-height:36px;padding:0 13px;border:1px solid var(--line);border-radius:var(--ui-r,3px);background:linear-gradient(155deg,rgba(14,24,40,.84),rgba(7,12,24,.88));box-shadow:var(--ui-inner),0 10px 26px -14px #000c;color:var(--soft);font-size:var(--fs-s,11px);letter-spacing:.6px;backdrop-filter:blur(12px);transition:opacity var(--ui-base) var(--ui-ease),color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease),background-color var(--ui-fast) var(--ui-ease)}
+#journal-toggle:hover,#journal-toggle[aria-expanded=true]{color:var(--ink);border-color:var(--line-strong);background:linear-gradient(155deg,rgba(18,31,52,.92),rgba(9,16,30,.94))}
+.journal-icon{font-size:13px;line-height:1;color:var(--accent);opacity:.88}
+.journal-count{padding:1px 6px;border-radius:99px;background:color-mix(in srgb,var(--accent,#bcd9f2) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent,#bcd9f2) 22%,transparent);font:10px/1.45 Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--ink)}
+#journal-toggle[data-unread=true]:after{content:'';position:absolute;right:6px;top:5px;width:5px;height:5px;background:#d8eef6;border-radius:50%;box-shadow:0 0 8px #94c3ddcc}
 
-#sky-event-status{position:fixed;left:50%;bottom:121px;transform:translateX(-50%);width:335px;max-width:calc(100vw - 32px);padding:13px 16px 12px;background:#071522d9;border-left:2px solid #9bdcd780;border-radius:2px 9px 2px 2px;z-index:6;backdrop-filter:blur(9px)}#sky-event-status>div{display:flex;justify-content:space-between;gap:15px;align-items:center}#sky-event-status strong{font:400 17px/1.5 Yaoguang,SimSun,serif;color:#d8edf1;letter-spacing:1px}#sky-event-status p{font-size:11px;line-height:1.8;color:#abc3cf;margin:8px 0 0}#sky-event-stop{display:grid;place-items:center;width:36px;height:36px;margin:-8px -10px -8px 0;padding:0;font-size:20px;color:#a0bacb}.journal-replay{font-size:11px;color:#bddde5;border-bottom:1px solid #9cc8d443;padding:5px 0;margin-top:9px}.journal-replay:hover{border-color:#c5e6ed}.sky-actions button{color:#c2e4e7!important}
+/* Wide museum-grade field notebook modal */
+#observation-journal{width:min(840px,calc(100vw - 48px));max-height:calc(100svh - 44px);padding:24px 28px 20px;color:var(--ink,#e4ebf4);background:radial-gradient(ellipse 70% 34% at 22% 0%,color-mix(in srgb,var(--accent,#bcd9f2) 13%,transparent),transparent 70%),linear-gradient(155deg,rgba(14,24,39,.96),rgba(7,12,22,.98) 65%);border:1px solid var(--line,#b4cde230);border-top-color:var(--line-strong,#c8dcf066);border-radius:var(--ui-r-card,3px 16px 3px 3px);box-shadow:var(--ui-inner),0 36px 120px #000c;scrollbar-width:thin;scrollbar-color:#486278 transparent;overflow:auto;overscroll-behavior:contain}
+#observation-journal::backdrop{background:rgba(2,7,15,.72);backdrop-filter:blur(7px)}
+
+.journal-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.journal-kicker{margin:0 0 5px;font:9.5px/1.5 var(--mono,Consolas,monospace);letter-spacing:2.8px;color:var(--accent,#bcd9f2);opacity:.82}
+#journal-title{font:400 25px/1.35 Yaoguang,SimSun,serif;letter-spacing:3px;color:var(--ink,#e4ebf4);margin:0}
+#journal-close{display:grid;place-items:center;width:34px;height:34px;margin:-2px -2px 0 0;padding:0;border:1px solid var(--line);border-radius:50%;background:rgba(255,255,255,.025);font:20px/1 'Segoe UI',sans-serif;color:var(--soft);transition:color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease),background-color var(--ui-fast) var(--ui-ease)}
+#journal-close:hover{color:var(--ink);border-color:var(--line-strong);background:rgba(255,255,255,.08)}
+.journal-intro{font-size:11.5px;line-height:1.75;color:var(--soft,#bccad8);margin:8px 0 14px;max-width:560px}
+
+/* Three-column progress telemetry cards with luminous fill tracks */
+.journal-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.journal-summary{position:relative;overflow:hidden;display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:10px 14px 14px;border:1px solid var(--line);border-radius:var(--ui-r,3px);background:linear-gradient(160deg,rgba(255,255,255,.034),rgba(255,255,255,.01));font-size:11px;color:var(--soft);letter-spacing:.8px}
+.journal-summary:before{content:'';position:absolute;left:14px;right:14px;bottom:6px;height:2px;border-radius:99px;background:rgba(165,195,218,.15)}
+.journal-summary:after{content:'';position:absolute;left:14px;bottom:6px;height:2px;width:calc((100% - 28px) * var(--pct, 0));max-width:calc(100% - 28px);border-radius:99px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent,#bcd9f2) 65%,transparent),var(--accent,#bcd9f2));box-shadow:0 0 8px color-mix(in srgb,var(--accent,#bcd9f2) 55%,transparent);transition:width .45s var(--ui-ease)}
+.journal-summary strong{font:13.5px/1.2 var(--mono,Consolas,monospace);font-variant-numeric:tabular-nums;color:var(--ink)}
+.journal-summary-total{border-color:color-mix(in srgb,var(--accent,#bcd9f2) 32%,transparent);background:linear-gradient(155deg,color-mix(in srgb,var(--accent,#bcd9f2) 8%,transparent),rgba(255,255,255,.012))}
+.journal-summary-total strong{display:inline-flex;align-items:center;gap:6px}
+#journal-tally[data-complete=true]{border-color:color-mix(in srgb,var(--accent,#bcd9f2) 62%,transparent);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 22px -12px color-mix(in srgb,var(--accent,#bcd9f2) 60%,transparent)}
+#journal-tally[data-complete=true] strong{color:#f0f7fc}
+.journal-tally-mark{font-size:11px;line-height:1;color:var(--accent,#d6ecf4);text-shadow:0 0 7px color-mix(in srgb,var(--accent,#9fd0e8) 65%,transparent)}
+#observation-journal[data-complete=true] #journal-title:before{content:'✦';display:inline-block;margin-right:10px;font-size:.58em;vertical-align:.22em;color:var(--accent,#d6ecf4);text-shadow:0 0 9px color-mix(in srgb,var(--accent,#9fd0e8) 65%,transparent)}
+#observation-journal[data-complete=true] .journal-intro{color:#d3e3ec}
+
+/* Planetary voyage orbital track */
+#journal-voyage{position:relative;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:0 0 15px;padding:11px 12px 9px;border:1px solid var(--line);border-radius:var(--ui-r,3px);background:rgba(255,255,255,.018)}
+#journal-voyage:before{content:'';position:absolute;left:9%;right:9%;top:16px;height:1px;background:linear-gradient(90deg,transparent,var(--line-strong) 18%,var(--line-strong) 82%,transparent);pointer-events:none}
+#journal-voyage span{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;font:12px/1.35 Yaoguang,SimSun,serif;letter-spacing:1.4px;color:var(--muted)}
+#journal-voyage span:before{content:'';width:10px;height:10px;border-radius:50%;background:#0a1422;border:1.5px solid #597287;transition:background-color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease),box-shadow var(--ui-fast) var(--ui-ease)}
+#journal-voyage span[data-visited=true]{color:var(--ink)}
+#journal-voyage span[data-visited=true]:before{background:var(--c,#b8d7dc);border-color:#eef6fb;box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#b8d7dc) 24%,transparent),0 0 12px color-mix(in srgb,var(--c,#b8d7dc) 65%,transparent)}
+
+/* Two-column starlight archive cards */
+#journal-entries{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#journal-entries article{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;padding:11px 14px 10px;border:1px dashed color-mix(in srgb,var(--line) 95%,transparent);border-radius:var(--ui-r,3px);background:rgba(255,255,255,.016);transition:border-color var(--ui-fast) var(--ui-ease),background-color var(--ui-fast) var(--ui-ease)}
+#journal-entries article[data-unlocked=true]{border-style:solid;border-color:color-mix(in srgb,var(--entry-color,var(--accent)) 34%,var(--line));border-left:2px solid var(--entry-color,var(--accent));background:radial-gradient(ellipse 75% 65% at 0% 0%,color-mix(in srgb,var(--entry-color,var(--accent)) 11%,transparent),transparent 72%),linear-gradient(160deg,rgba(255,255,255,.038),rgba(255,255,255,.012))}
+.journal-card-head{display:flex;align-items:center;gap:9px}
+.journal-number{display:inline-grid;place-items:center;min-width:26px;height:20px;padding:0 5px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.025);font:10px/1 var(--mono,Consolas,monospace);color:var(--muted);flex-shrink:0}
+#journal-entries h3{font:400 16px/1.35 Yaoguang,SimSun,serif;letter-spacing:1.2px;margin:0;color:var(--muted)}
+.journal-story{flex:1;font-size:11.5px;line-height:1.85;color:#8fa5b6;margin:0}
+.journal-card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:4px;padding-top:9px;border-top:1px solid color-mix(in srgb,var(--line) 75%,transparent)}
+.journal-status{font-size:10px;line-height:1.5;color:#7e98aa;margin:0}
+
+#journal-entries article[data-unlocked=true] h3{color:var(--ink)}
+#journal-entries article[data-unlocked=true] .journal-number{border-color:color-mix(in srgb,var(--entry-color,var(--accent)) 48%,transparent);background:color-mix(in srgb,var(--entry-color,var(--accent)) 14%,transparent);color:var(--entry-color,var(--accent))}
+#journal-entries article[data-unlocked=true] .journal-story{color:var(--soft)}
+#journal-entries article[data-unlocked=true] .journal-status{color:#9ab6c7}
+
+.journal-replay{flex-shrink:0;padding:4px 10px;border:1px solid color-mix(in srgb,var(--entry-color,var(--accent)) 42%,transparent);border-radius:99px;background:color-mix(in srgb,var(--entry-color,var(--accent)) 10%,transparent);font-size:10.5px;line-height:1.35;color:var(--ink);transition:background-color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease)}
+.journal-replay:hover{border-color:var(--entry-color,var(--accent));background:color-mix(in srgb,var(--entry-color,var(--accent)) 22%,transparent);color:#fff}
+
+/* Footer strip */
+.journal-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+#journal-storage{font-size:10.5px;line-height:1.7;color:var(--muted);margin:0}
+#journal-return{flex-shrink:0;display:inline-flex;align-items:center;gap:12px;min-height:36px;padding:0 16px;border:1px solid var(--line-strong);border-radius:var(--ui-r,3px);background:color-mix(in srgb,var(--accent,#bcd9f2) 12%,transparent);color:var(--ink);font-size:11.5px;letter-spacing:.6px;transition:background-color var(--ui-fast) var(--ui-ease),border-color var(--ui-fast) var(--ui-ease)}
+#journal-return:hover{background:color-mix(in srgb,var(--accent,#bcd9f2) 22%,transparent);border-color:var(--accent,#bcd9f2);color:#fff}
+
+/* Discovery toast — yields cleanly when the lab panel is open */
+#discovery-notice{position:fixed;right:24px;bottom:146px;width:258px;padding:15px 18px;text-align:left;display:flex;flex-direction:column;gap:5px;z-index:16;border:1px solid #a3c3d247;border-left:2px solid var(--accent,#a4d4d7);background:linear-gradient(125deg,rgba(18,36,52,.94),rgba(9,19,33,.96));box-shadow:var(--ui-inner),0 16px 42px #0006;backdrop-filter:blur(14px);border-radius:var(--ui-r-card,2px 11px 2px 2px);transition:right var(--ui-base) var(--ui-ease)}
+body[data-lab=true] #discovery-notice{right:calc(min(620px,100vw - 120px) + 108px)}
+#discovery-notice small{font-size:10px;letter-spacing:2px;color:#9bbacb}
+#discovery-notice strong{font:400 17px/1.5 Yaoguang,SimSun,serif;letter-spacing:1px;color:#dff0f5}
+#discovery-notice>span{font-size:11px;color:#abc3d2}
+body.clean #journal-toggle{opacity:.55}
+body.clean #discovery-notice{display:none}
+
+/* Sky / Cosmic event status HUD */
+#sky-event-status{position:fixed;left:50%;bottom:121px;transform:translateX(-50%);width:360px;max-width:calc(100vw - 32px);padding:13px 16px 12px;background:rgba(7,19,32,.88);border:1px solid var(--line);border-left:2px solid #9bdcd7a8;border-radius:var(--ui-r-card,2px 10px 2px 2px);box-shadow:var(--ui-inner),var(--ui-shadow);z-index:6;backdrop-filter:blur(12px)}
+#sky-event-status>div{display:flex;justify-content:space-between;gap:14px;align-items:center}
+#sky-event-status strong{font:400 17px/1.4 Yaoguang,SimSun,serif;color:#e0f1f5;letter-spacing:1.2px}
+#sky-event-status p{font-size:11px;line-height:1.75;color:#b2cad6;margin:7px 0 0}
+#sky-event-stop{display:grid;place-items:center;width:32px;height:32px;margin:-4px -6px -4px 0;padding:0;border-radius:50%;font-size:18px;color:#a0bacb;transition:color var(--ui-fast) var(--ui-ease),background-color var(--ui-fast) var(--ui-ease)}
+#sky-event-stop:hover{color:#fff;background:rgba(255,255,255,.08)}
+#sky-event-status[data-event=supernova]{border-left-color:#8cc8ffbf}
+#sky-event-status[data-event=gravity]{border-left-color:#e2be90cc}
 body.clean #sky-event-status{display:none}
-@media(max-width:760px){#sky-event-status{top:210px;bottom:auto;padding:10px 13px;max-width:calc(100vw - 36px)}#sky-event-status strong{font-size:15px}#sky-event-status p{font-size:9px;margin-top:4px}body[data-mode=system][data-inspect=false] #journal-toggle{bottom:134px}#discovery-notice{top:306px}}
-@media(max-height:740px) and (max-width:760px){#sky-event-status{top:201px}#sky-event-status p{display:none}}
-@media(max-width:760px){#discovery-notice{left:20px;right:auto;top:209px;width:270px;padding:8px 12px}#discovery-notice small,#discovery-notice>span{display:none}#discovery-notice strong{font-size:14px}body[data-mode=system][data-inspect=false] #discovery-notice{top:auto;bottom:177px}}
 
-/* UI polish 2026-10-07: shared instrument language, notice/status radius, touch size, narrow system layout. */
-#discovery-notice{border-radius:var(--ui-r-card,2px 11px 2px 2px);box-shadow:var(--ui-inner),0 14px 40px #0004}#sky-event-status{border-radius:var(--ui-r-card,2px 9px 2px 2px);box-shadow:var(--ui-inner),var(--ui-shadow)}#observation-journal{border-radius:var(--ui-r-card,3px 18px 3px 3px)}
-#journal-entries .journal-story{font-size:11.5px}
-@media(max-width:760px){#journal-toggle{min-height:40px;padding:0 10px;font-size:var(--fs-s,11px)}#sky-event-status p{font-size:10.5px}#discovery-notice strong{font-size:15px}#journal-voyage span{font-size:10.5px}}
-@media(max-width:360px){body[data-mode=system][data-inspect=false] #journal-toggle{top:auto!important;left:auto;right:117px;bottom:134px}}
+/* Look-specific themes for the field notebook */
+body[data-look=atlas] #observation-journal{border-radius:0;background:linear-gradient(160deg,#071828fa,#05101cfa)}
+body[data-look=atlas] .journal-summary,body[data-look=atlas] #journal-voyage,body[data-look=atlas] #journal-entries article,body[data-look=atlas] #journal-return{border-radius:0}
+body[data-look=nebula] #observation-journal{background:radial-gradient(ellipse 70% 35% at 22% 0%,rgba(195,165,240,.16),transparent 70%),linear-gradient(145deg,rgba(32,24,49,.96),rgba(13,18,33,.98));border-color:#c6b6e44d}
+body[data-look=cinema] #observation-journal{background:radial-gradient(ellipse 70% 35% at 22% 0%,rgba(216,196,158,.13),transparent 70%),linear-gradient(145deg,rgba(28,31,36,.96),rgba(10,16,26,.98));border-color:#c4b79e4d}
+
+@media(prefers-reduced-motion:reduce){.journal-tally-mark,#observation-journal[data-complete=true] #journal-title:before{text-shadow:none}.journal-summary:after{transition:none}}
+
+/* Mobile & narrow responsive rules (390px and 320px overflow-free & rail-safe) */
+@media(max-width:760px){
+ #journal-toggle{right:139px;bottom:134px;min-height:40px;padding:0 10px;font-size:var(--fs-s,11px);gap:6px}
+ body[data-mode=system][data-inspect=false] #journal-toggle{bottom:134px}
+ body[data-inspect=true] #journal-toggle,body[data-mode=planet] #journal-toggle,body[data-mode=star] #journal-toggle,body[data-mode=moon] #journal-toggle,body[data-mode=singularity] #journal-toggle{left:130px;right:auto;bottom:auto;top:171px}
+ #observation-journal{width:calc(100vw - 24px);max-height:calc(100svh - 28px);padding:20px 18px 18px;border-radius:3px 14px 3px 3px}
+ #journal-title{font-size:21px;letter-spacing:1.5px}
+ .journal-intro{font-size:11px;margin:8px 0 14px}
+ .journal-stats{grid-template-columns:1fr;gap:7px;margin-bottom:14px}
+ .journal-summary{padding:9px 12px 12px}
+ #journal-voyage{gap:3px;padding:11px 6px 9px;margin-bottom:16px}
+ #journal-voyage:before{top:16px}
+ #journal-voyage span{font-size:10.5px;letter-spacing:0;gap:5px}
+ #journal-voyage span:before{width:8px;height:8px}
+ #journal-entries{grid-template-columns:1fr;gap:10px}
+ #journal-entries article{padding:12px 13px}
+ #journal-entries h3{font-size:15px}
+ .journal-story{font-size:11px;line-height:1.8}
+ .journal-card-foot{flex-wrap:wrap;gap:6px}
+ .journal-foot{flex-direction:column;align-items:stretch;gap:12px;margin-top:16px;padding-top:14px}
+ #journal-return{justify-content:space-between;min-height:40px}
+ #discovery-notice,body[data-lab=true] #discovery-notice{left:20px;right:auto;top:209px;bottom:auto;width:270px;padding:8px 12px}
+ #discovery-notice small,#discovery-notice>span{display:none}
+ #discovery-notice strong{font-size:15px}
+ body[data-mode=system][data-inspect=false] #discovery-notice{top:auto;bottom:177px}
+ #sky-event-status{top:210px;bottom:auto;padding:10px 13px;max-width:calc(100vw - 36px)}
+ #sky-event-status strong{font-size:15px}
+ #sky-event-status p{font-size:10.5px;margin-top:4px}
+}
+@media(max-height:740px) and (max-width:760px){#sky-event-status{top:201px}#sky-event-status p{display:none}}
+@media(max-width:360px){
+ #journal-toggle{left:125px;right:auto;bottom:auto;top:163px!important;padding:0 8px;gap:4px}
+ body[data-mode=system][data-inspect=false] #journal-toggle{top:auto!important;left:auto;right:117px;bottom:134px}
+ #observation-journal{padding:18px 14px}
+ #journal-title{font-size:19px}
+}

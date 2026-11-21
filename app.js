@@ -12,11 +12,12 @@ import {ShaderPass} from './vendor/postprocessing/ShaderPass.js';
 import {OutputPass} from './vendor/postprocessing/OutputPass.js';
 import {createDust} from './dust.js';
 import {createIntro,createDrift,DRIFT} from './intro.js';
+import {SINGULARITY,createBlackHole,createCosmicEvents,singularityPortraitDataUrl} from './cosmic.js';
 
 const $=id=>document.getElementById(id);
 const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 const state={mode:'system',planet:null,selected:null,moon:null,paused:reduced.matches,time:0,lastActivity:performance.now()};
-let scene,camera,renderer,controls,transition,ready=false,failed=false,star,corona,starLabel,halo,comet,echo,discoveries,skyEvents,eggs;
+let scene,camera,renderer,controls,transition,ready=false,failed=false,star,corona,starLabel,halo,comet,echo,discoveries,skyEvents,eggs,blackHole,blackHoleLabel,cosmicEvents;
 // HDR post chain: scene → bloom → finish (chromatic aberration, grain, vignette) → tone map.
 // `post` flips to false on `?post=0`, missing float render targets, or sustained slow frames.
 let composer=null,bloom=null,finish=null,post=false,frameCount=0,frameCap=0,gpuName='',dust=null;
@@ -28,12 +29,27 @@ let intro=null,drift=null,starField=null,flightTimer=0;
 // Overview-only props (orbits, ticks, belt, comet, echo) ease out over ~0.6s when a
 // flight departs instead of vanishing on the frame `mode` changes.
 let systemFade=1;
-const FINISH_SHADER={uniforms:{tDiffuse:{value:null},uTime:{value:0},uAberration:{value:.0022},uGrain:{value:.018},uVignette:{value:.35}},
+const FINISH_SHADER={uniforms:{tDiffuse:{value:null},uTime:{value:0},uAberration:{value:.0022},uGrain:{value:.018},uVignette:{value:.35},uLensPos:{value:new THREE.Vector2(.5,.5)},uLensRadius:{value:0},uLensStrength:{value:0},uAspect:{value:1.5},uRipple:{value:0}},
  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
- fragmentShader:`uniform sampler2D tDiffuse;uniform float uTime,uAberration,uGrain,uVignette;varying vec2 vUv;
+ fragmentShader:`uniform sampler2D tDiffuse;uniform float uTime,uAberration,uGrain,uVignette,uLensRadius,uLensStrength,uAspect,uRipple;uniform vec2 uLensPos;varying vec2 vUv;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-void main(){vec2 d=vUv-.5;float r2=dot(d,d);vec2 shift=d*r2*uAberration*4.;
-vec3 c=vec3(texture2D(tDiffuse,vUv+shift).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-shift).b);
+void main(){
+vec2 uv=vUv;
+if(uLensStrength>.001&&uLensRadius>.001){
+ vec2 ld=(uv-uLensPos)*vec2(uAspect,1.);
+ float lr=length(ld);
+ float ring=smoothstep(uLensRadius*1.32,uLensRadius*2.15,lr)*exp(-max(lr-uLensRadius*1.32,0.)/max(uLensRadius*3.0,.001));
+ uv-=normalize(ld+vec2(1e-5))*(ring*uLensRadius*.11*uLensStrength)/vec2(uAspect,1.);
+}
+if(uRipple>.001){
+ vec2 rv=(uv-uLensPos)*vec2(uAspect,1.);
+ float rd=length(rv);
+ float w=sin(rd*26.-uTime*3.8)*exp(-rd*2.4)*.0022*uRipple;
+ uv+=normalize(rv+vec2(1e-5))*w/vec2(uAspect,1.);
+}
+uv=clamp(uv,vec2(.001),vec2(.999));
+vec2 d=uv-.5;float r2=dot(d,d);vec2 shift=d*r2*uAberration*4.;
+vec3 c=vec3(texture2D(tDiffuse,clamp(uv+shift,vec2(.001),vec2(.999))).r,texture2D(tDiffuse,uv).g,texture2D(tDiffuse,clamp(uv-shift,vec2(.001),vec2(.999))).b);
 float g=hash(floor(vUv*vec2(1920.,1080.))+fract(uTime*.37)*17.)-.5;c+=g*uGrain*(.25+c);
 c*=1.-r2*uVignette;gl_FragColor=vec4(c,1.);}`};
 const defaults=()=>({speed:1,sky:1,orbits:true,labels:true,comets:true,moonScale:1,worlds:{}});
@@ -79,22 +95,36 @@ for(const p of PLANETS){
  const marker=document.createElement('i');marker.dataset.marker=p.id;marker.style.setProperty('--c',p.color);systemMap.querySelector('.map-field').append(marker);
  const button=document.createElement('button');button.type='button';button.dataset.world=p.id;button.textContent=p.name;button.style.setProperty('--c',p.color);button.onclick=()=>navigate(p.id);systemMap.querySelector('nav').append(button);
 }
+{const bhMarker=document.createElement('i');bhMarker.dataset.singularity=SINGULARITY.id;bhMarker.style.setProperty('--c',SINGULARITY.color);systemMap.querySelector('.map-field').append(bhMarker);
+ const bhBtn=document.createElement('button');bhBtn.type='button';bhBtn.dataset.singularity=SINGULARITY.id;bhBtn.textContent=`${SINGULARITY.name} · 远距暗伴体`;bhBtn.style.setProperty('--c',SINGULARITY.color);bhBtn.onclick=()=>navigate(SINGULARITY.id);systemMap.querySelector('nav').append(bhBtn);}
 document.body.append(systemMap);
 function updateSystemMap(){
  systemMap.hidden=state.mode==='system';
  if(systemMap.hidden)return;
- const extent=Math.max(...PLANETS.map(p=>p.orbit));
+ const extent=Math.max(...PLANETS.map(p=>p.orbit),SINGULARITY.orbit);
+ if(star){
+  const sm=systemMap.querySelector('.map-star');
+  sm.style.left=Math.max(8,Math.min(92,50+star.position.x/extent*43))+'%';
+  sm.style.top=Math.max(8,Math.min(92,50+star.position.z/extent*40))+'%';
+ }
  for(const b of bodies){
   const marker=systemMap.querySelector(`[data-marker="${b.def.id}"]`);
-  marker.style.left=(50+b.root.position.x/extent*43)+'%';marker.style.top=(50+b.root.position.z/extent*40)+'%';
+  marker.style.left=Math.max(6,Math.min(94,50+b.root.position.x/extent*43))+'%';marker.style.top=Math.max(7,Math.min(93,50+b.root.position.z/extent*40))+'%';
   marker.dataset.current=String(state.planet===b.def.id);
   systemMap.querySelector(`[data-world="${b.def.id}"]`).setAttribute('aria-current',String(state.planet===b.def.id));
+ }
+ if(blackHole){
+  const bm=systemMap.querySelector(`i[data-singularity="${SINGULARITY.id}"]`);
+  bm.style.left=Math.max(6,Math.min(94,50+blackHole.root.position.x/extent*43))+'%';
+  bm.style.top=Math.max(7,Math.min(93,50+blackHole.root.position.z/extent*40))+'%';
+  bm.dataset.current=String(state.planet===SINGULARITY.id);
+  systemMap.querySelector(`button[data-singularity="${SINGULARITY.id}"]`).setAttribute('aria-current',String(state.planet===SINGULARITY.id));
  }
 }
 $('nav-toggle').onclick=()=>{const open=$('services').classList.toggle('expanded');$('nav-toggle').setAttribute('aria-expanded',String(open));};
 $('home').onclick=()=>navigate();$('explore').onclick=()=>selectBody('lingxi');
 $('star-info').onclick=()=>selectBody('yaoguang');
-$('close-card').onclick=()=>{const id=state.selected||state.planet;navigate();(id==='yaoguang'?$('star-info'):$('planet-nav').querySelector(`[data-id="${id}"]`))?.focus();};
+$('close-card').onclick=()=>{const id=state.selected||state.planet;navigate();(id==='yaoguang'?$('star-info'):id===SINGULARITY.id?$('play-toggle'):$('planet-nav').querySelector(`[data-id="${id}"]`))?.focus();};
 $('visit').onclick=()=>navigate(state.selected);
 $('back').onclick=()=>navigate(state.mode==='moon'?state.planet:null);
 $('reset').onclick=()=>focusCamera(true);
@@ -120,15 +150,15 @@ window.addEventListener('popstate',()=>readHash());
 function readHash(){const [p,m]=location.hash.slice(1).split('/');if(p==='inspect')navigate(m,null,false,true);else navigate(p,m===undefined?null:Number(m),false);}
 function selectBody(id){navigate(id,null,true,true);}
 function navigate(id=null,moon=null,push=true,inspect=false){
- const def=id==='yaoguang'?STAR:PLANETS.find(p=>p.id===id);if(!def)id=null;
+ const def=id==='yaoguang'?STAR:id===SINGULARITY.id?SINGULARITY:PLANETS.find(p=>p.id===id);if(!def)id=null;
  if(moon!==null&&(!Number.isInteger(moon)||!def?.moons?.[moon]))moon=null;
  const previousMode=state.mode;
- state.selected=inspect?id:null;state.planet=inspect?null:id;state.moon=moon;state.mode=inspect||!id?'system':id==='yaoguang'?'star':moon===null?'planet':'moon';state.lastActivity=performance.now();
+ state.selected=inspect?id:null;state.planet=inspect?null:id;state.moon=moon;state.mode=inspect||!id?'system':id==='yaoguang'?'star':id===SINGULARITY.id?'singularity':moon===null?'planet':'moon';state.lastActivity=performance.now();
  document.body.dataset.mode=state.mode;
  document.body.dataset.inspect=String(inspect&&!!id);
  if(push){const hash=id?inspect?`#inspect/${id}`:`#${id}${moon!==null?'/'+moon:''}`:'';if(location.hash!==hash)history.pushState(null,'',location.pathname+location.search+hash);}
  for(const link of $('look-links').querySelectorAll('a'))link.href=`${location.pathname}?style=${link.dataset.style}${location.hash}`;
- if(!inspect&&id&&id!=='yaoguang')discoveries?.visit(id,moon);
+ if(!inspect&&id&&id!=='yaoguang'&&id!==SINGULARITY.id)discoveries?.visit(id,moon);
  updateDetails();updateNear();if(push&&inspect&&id)$('visit').focus({preventScroll:true});if(ready&&(state.mode!=='system'||previousMode!=='system'))focusCamera();
 }
 function action(item,root){
@@ -139,10 +169,10 @@ function action(item,root){
  if(item.base){const copy=document.createElement('button');copy.className='primary-link';copy.style.marginLeft='16px';copy.textContent='复制 API 地址';copy.onclick=async()=>{try{await navigator.clipboard.writeText(item.base);toast('API 地址已复制');}catch{toast('无法自动复制：'+item.base);}};root.append(copy);}
 }
 function updateDetails(){
- const id=state.selected||state.planet,isStar=id==='yaoguang',def=isStar?STAR:PLANETS.find(p=>p.id===id),inspect=!!state.selected;
+ const id=state.selected||state.planet,isStar=id==='yaoguang',isSingularity=id===SINGULARITY.id,def=isStar?STAR:isSingularity?SINGULARITY:PLANETS.find(p=>p.id===id),inspect=!!state.selected;
  $('details').hidden=!def;
  $('back').hidden=!def;$('eyebrow').hidden=!!def;$('explore').hidden=!!def;$('planet-action').hidden=!def;
- $('moon-section').hidden=!def||isStar||inspect;$('moon-card').hidden=state.mode!=='moon';
+ $('moon-section').hidden=!def||isStar||isSingularity||inspect;$('moon-card').hidden=state.mode!=='moon';
  $('visit').hidden=!inspect;$('world-note').hidden=!def;$('portrait-wrap').hidden=!def||state.mode==='moon';
  for(const b of $('planet-nav').children)b.setAttribute('aria-current',String(b.dataset.id===id));
  if(!def){
@@ -151,13 +181,22 @@ function updateDetails(){
  $('view-label').textContent='星系全景';$('scale-label').textContent='示意比例';$('hint').textContent='拖动环绕 · 滚轮缩放 · 点选查看档案';return;
  }
  $('details').scrollTop=0;
- $('portrait').src=`./vendor/portraits/${id}.webp`;$('portrait').alt=`${def.name}的场景肖像`;$('portrait-caption').textContent=isStar?'蓝白光球 · 艺术演绎':'星球肖像 · 场景渲染';
+ $('portrait').src=isSingularity?singularityPortraitDataUrl():`./vendor/portraits/${id}.webp`;$('portrait').alt=`${def.name}的场景肖像`;$('portrait-caption').textContent=isStar?'蓝白光球 · 艺术演绎':isSingularity?'引力弯曲吸积盘 · 艺术演绎':'星球肖像 · 场景渲染';
  $('visit').innerHTML=`前往${def.name} <span>→</span>`;
- $('world-note').textContent=isStar?'恒星参数沿用 Alkaid 参考设定；周围六颗行星为虚构世界。':'虚构星系设定 · 公转按 6.1 个太阳质量推算；光照、气候与画面尺度均为艺术处理。';
+ $('world-note').textContent=isStar?'恒星参数沿用 Alkaid 参考设定；周围六颗行星为虚构世界。':isSingularity?`远距暗伴体设定 · 常态位于瑶光希尔稳定界（${SINGULARITY.hillAu} AU）之外，因此六颗行星稳定运行；启动引力牵引可实时演练恒星与行星被拉向黑洞。`:'虚构星系设定 · 公转按 6.1 个太阳质量推算；光照、气候与画面尺度均为艺术处理。';
  if(isStar){
   $('title').textContent='瑶光';$('subtitle').textContent='Alkaid / 蓝白主序星 · B3V';$('description').textContent=STAR.description;
   $('facts').innerHTML='<div><span>表面温度</span><strong>16,800 <small>K</small></strong></div><div><span>恒星质量</span><strong>6.1 <small>M☉</small></strong></div><div><span>恒星半径</span><strong>3.4 <small>R☉</small></strong></div>';
   $('planet-action').hidden=true;$('back').textContent=inspect?'‹ 收起档案':'‹ 返回星系';$('view-label').textContent=inspect?'星系全景':'瑶光近景';$('scale-label').textContent='蓝白色的第七星';return;
+ }
+ if(isSingularity){
+  $('title').textContent=SINGULARITY.name;$('subtitle').textContent=`${SINGULARITY.roman} / ${SINGULARITY.type}`;$('description').textContent=SINGULARITY.description;
+  $('facts').innerHTML=`<div><span>黑洞质量</span><strong>${SINGULARITY.massSolar.toFixed(1)} <small>M☉</small></strong><small>自旋 a* ${SINGULARITY.spin}</small></div><div><span>事件视界</span><strong>${SINGULARITY.schwarzschildKm.toFixed(1)} <small>km</small></strong><small>史瓦西半径</small></div><div><span>深空间距</span><strong>${SINGULARITY.au} <small>AU</small></strong><small>希尔界 ${SINGULARITY.hillAu} AU</small></div>`;
+  $('planet-action').hidden=false;$('planet-action').replaceChildren();
+  const pullBtn=document.createElement('button');pullBtn.type='button';pullBtn.className='primary-link';pullBtn.textContent='演练黑洞引力牵引 →';
+  pullBtn.onclick=()=>{$('discovery-note').textContent='归墟切入希尔稳定界：母恒星瑶光被拽偏并拉出洛希瓣物质流，六颗行星实时脱离圆轨向黑洞偏转。';showCosmicEvent('gravity');};
+  $('planet-action').append(pullBtn);
+  $('back').textContent=inspect?'‹ 收起档案':'‹ 返回星系';$('view-label').textContent=inspect?'星系全景':'奇点近景';$('scale-label').textContent='远距引力透镜';$('hint').textContent='拖动环绕 · 滚轮缩放 · Esc 返回';return;
  }
  $('title').textContent=state.mode==='moon'?def.moons[state.moon].title:def.name;
  $('subtitle').textContent=state.mode==='moon'?`${def.name} · 随行卫星`:`${def.roman} / ${def.type}`;
@@ -171,10 +210,11 @@ function updateDetails(){
 }
 let toastTimer;function toast(message,ms=3000){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),ms);}
 
-function setLab(open){if(open&&document.body.classList.contains('clean'))$('clean').click();$('play-panel').hidden=!open;$('play-toggle').setAttribute('aria-expanded',String(open));if(open){$('look-menu').hidden=true;$('look-toggle').setAttribute('aria-expanded','false');$('play-close').focus();}else $('play-toggle').focus();}
+function setLab(open){if(open&&document.body.classList.contains('clean'))$('clean').click();$('play-panel').hidden=!open;document.body.dataset.lab=String(open);$('play-toggle').setAttribute('aria-expanded',String(open));if(open){$('look-menu').hidden=true;$('look-toggle').setAttribute('aria-expanded','false');$('play-close').focus();}else $('play-toggle').focus();}
 $('play-toggle').onclick=()=>setLab($('play-panel').hidden);$('play-close').onclick=()=>setLab(false);
 for(const p of PLANETS){const o=document.createElement('option');o.value=p.id;o.textContent=p.name;$('tune-planet').append(o);}
 function tuningPlanet(){return PLANETS.find(p=>p.id===$('tune-planet').value)||PLANETS[0];}
+function setRangePct(el){const min=Number(el.min)||0,max=Number(el.max)||1,val=Number(el.value);el.style.setProperty('--pct',Math.max(0,Math.min(100,((val-min)/(max-min||1))*100)).toFixed(1)+'%');}
 function syncLab(){
  const p=tuningPlanet();
  $('time-scale').value=settings.speed;$('time-output').value=settings.speed.toFixed(1)+'×';
@@ -183,6 +223,7 @@ function syncLab(){
  $('orbit-radius').value=p.au;$('orbit-output').value=p.au.toFixed(2)+' AU';$('period-output').textContent='公转周期 '+formatPeriod(p.periodDays)+' · 随轨道同步计算';
  $('cloud-cover').value=p.cloud;$('cloud-cover').disabled=!p.original.cloud;$('cloud-output').value=p.original.cloud?Math.round(p.cloud*100)+'%':'无独立云层';
  $('moon-size').value=settings.moonScale;$('moon-output').value=Math.round(settings.moonScale*100)+'%';
+ for(const id of ['time-scale','sky-strength','orbit-radius','cloud-cover','moon-size'])setRangePct($(id));
 }
 function applySettings(){
  for(const p of PLANETS){
@@ -215,9 +256,17 @@ $('sister-stars').onclick=()=>{navigate();echoUntil=effectTime+18;$('discovery-n
 $('top-view').onclick=()=>{navigate();if(!ready)return;focusCamera(true);camera.position.set(0,systemDistance(),.1);controls.target.set(0,0,0);controls.update();resetLens();};
 function showSkyEvent(id){
  if(!skyEvents)return;
+ cosmicEvents?.stop();
  navigate(id==='aurora'?'lingxi':id==='signal'?'suxian':null);
  if(!$('play-panel').hidden)setLab(false);
  skyEvents.queue(id);
+}
+function showCosmicEvent(id){
+ if(!cosmicEvents)return;
+ skyEvents?.stop();
+ if(state.mode!=='system')navigate();
+ if(!$('play-panel').hidden)setLab(false);
+ cosmicEvents.queue(id);
 }
 function replayDiscovery(id){
  if(eggs?.replay(id))return;
@@ -225,7 +274,10 @@ function replayDiscovery(id){
  showSkyEvent(id==='tides'?'aurora':id==='old-signal'?'signal':'constellation');
 }
 for(const [button,id] of [['meteor-shower','meteors'],['trace-constellation','constellation'],['polar-lights','aurora'],['ice-signal','signal']])$(button).onclick=()=>showSkyEvent(id);
-$('sky-event-stop').onclick=()=>skyEvents?.stop();
+$('visit-blackhole').onclick=()=>{if(!$('play-panel').hidden)setLab(false);$('discovery-note').textContent='归墟悬于 185 AU 外的远距深空，处于瑶光希尔稳定界之外；近景可见多普勒聚束与爱因斯坦光子环。';navigate(SINGULARITY.id);};
+$('trigger-supernova').onclick=()=>{showCosmicEvent('supernova');$('discovery-note').textContent='远空超新星在星海深处坍缩，激波壳与赤道星环随 Sedov-Taylor 标度律缓慢铺开。';};
+$('trigger-gravity').onclick=()=>{showCosmicEvent('gravity');$('discovery-note').textContent='归墟切入希尔稳定界：母恒星瑶光被拽偏并拉出洛希瓣物质流，六颗行星实时脱离圆轨向黑洞偏转。';};
+$('sky-event-stop').onclick=()=>{skyEvents?.stop();cosmicEvents?.stop();};
 applySettings();
 
 function createEffects(){
@@ -246,7 +298,7 @@ function createEffects(){
 }
 function updateEffects(dt){
  if(!comet)return;
- corona.material.uniforms.uTime.value=state.time;star.rotation.y=state.time*.004;corona.rotation.y=state.time*.003;
+ corona.material.uniforms.uTime.value=state.time;if(!cosmicEvents?.overrideBodies)star.rotation.y=state.time*.004;corona.rotation.y=state.time*.003;
  const system=state.mode==='system',shown=systemFade>.01,belt=comet.userData.belt;
  belt.visible=shown;if(!intro?.active)belt.material.opacity=.28*systemFade;
  if(settings.comets&&system&&dt&&effectTime>nextComet&&cometAge<0){cometAge=0;nextComet=effectTime+100;}
@@ -315,15 +367,19 @@ function createBody(def,index){
  const b={def,root,tilt,surface,clouds,atmosphere,ring,orbit,ticks,label,moons};bodies.push(b);return b;
 }
 function moveBodies(){
- for(const b of bodies){const d=b.def,a=d.phase+state.time/d.period*Math.PI*2;b.root.position.set(Math.cos(a)*d.orbit,0,Math.sin(a)*d.orbit);b.surface.rotation.y=state.time*.015;if(b.clouds)b.clouds.rotation.y=state.time*.019;
- b.surface.material.uniforms.uTime.value=state.time;
- if(b.ring)b.ring.material.uniforms.uCenter.value.copy(b.root.position);
- for(const m of b.moons){const t=m.phase+state.time/m.period*Math.PI*2;m.mesh.position.set(Math.cos(t)*m.orbitRadius,0,Math.sin(t)*m.orbitRadius).applyEuler(m.track.rotation);m.mesh.rotation.y=state.time*.025;}
+ const overridden=!!cosmicEvents?.overrideBodies;
+ for(const b of bodies){
+  if(!overridden){const d=b.def,a=d.phase+state.time/d.period*Math.PI*2;b.root.position.set(Math.cos(a)*d.orbit,0,Math.sin(a)*d.orbit);}
+  b.surface.rotation.y=state.time*.015;if(b.clouds)b.clouds.rotation.y=state.time*.019;
+  b.surface.material.uniforms.uTime.value=state.time;
+  if(b.ring)b.ring.material.uniforms.uCenter.value.copy(b.root.position);
+  for(const m of b.moons){const t=m.phase+state.time/m.period*Math.PI*2;m.mesh.position.set(Math.cos(t)*m.orbitRadius,0,Math.sin(t)*m.orbitRadius).applyEuler(m.track.rotation);m.mesh.rotation.y=state.time*.025;}
  }
  if(star)star.material.uniforms.uTime.value=state.time;
+ if(blackHole)blackHole.update({time:state.time,camera,systemFade,orbitsVisible:settings.orbits,selected:state.selected===SINGULARITY.id,gravityBoost:cosmicEvents?.gravityIntensity||0,positionOverride:cosmicEvents?.blackHolePosition||null});
 }
 function currentBody(){return bodies.find(b=>b.def.id===state.planet);}
-function targetPosition(){const b=currentBody();if(!b)return new THREE.Vector3();if(state.mode==='moon')return b.moons[state.moon].mesh.getWorldPosition(new THREE.Vector3());return b.root.position.clone();}
+function targetPosition(){if(state.mode==='singularity'&&blackHole)return blackHole.root.position.clone();const b=currentBody();if(!b)return new THREE.Vector3();if(state.mode==='moon')return b.moons[state.moon].mesh.getWorldPosition(new THREE.Vector3());return b.root.position.clone();}
 function systemDistance(){const extent=Math.max(...PLANETS.map(p=>p.orbit+p.radius*2.5));return Math.max(mobile()?330:230,extent/(Math.tan(THREE.MathUtils.degToRad(20))*Math.min(1,innerWidth/innerHeight)))*1.05;}
 function focusCamera(immediate=false){
  if(!ready)return;
@@ -336,6 +392,17 @@ function focusCamera(immediate=false){
   position.sub(target).multiplyScalar(Math.max(1,extent/originalExtent)).add(target);min=95;max=Math.max(400,systemDistance()*1.5);
  }else if(state.mode==='star'){
   target=new THREE.Vector3(mobile()?0:-4,mobile()?-4:0,0);position=target.clone().add(new THREE.Vector3(15,8,mobile()?66:36));min=13;max=110;
+ }else if(state.mode==='singularity'&&blackHole){
+  const center=blackHole.root.position.clone(),r=SINGULARITY.radius;
+  // Low-inclination cinematic angle so the tilted disk and lensed arches breathe cleanly beside the card.
+  const dir=new THREE.Vector3(.54,.21,.81).normalize();
+  const right=new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0),dir).normalize();
+  const offset=right.multiplyScalar(mobile()?0:-r*1.85);
+  target=center.clone().add(offset);
+  const distance=r*(mobile()?14.8:10.4);
+  position=target.clone().addScaledVector(dir,distance);
+  if(mobile()){target.y-=r*2.2;position.y-=r*2.2;}
+  min=r*3.4;max=r*28;
  }else{
   const b=currentBody(),center=targetPosition(),radius=state.mode==='moon'?b.moons[state.moon].radius:b.def.radius;
   const yaw=state.mode==='planet'&&Number.isFinite(yawOverride)?yawOverride:LOOK.closeYaw;
@@ -356,7 +423,7 @@ function focusCamera(immediate=false){
  // Destination is stored relative to the target body's departure position (anchor);
  // the loop shifts it by the body's movement so time keeps running during flight.
  transition={start:performance.now(),duration,from:camera.position.clone(),to:position,targetFrom:controls.target.clone(),targetTo:target,min,max,anchor:targetPosition()};
- if(duration)showFlightStatus(state.mode==='system'?'正在返回星系':`正在接近${state.mode==='star'?'瑶光':state.mode==='moon'?currentBody()?.def.moons[state.moon]?.title||'卫星':currentBody()?.def.name||'天体'}`);else hideFlightStatus(true);
+ if(duration)showFlightStatus(state.mode==='system'?'正在返回星系':`正在接近${state.mode==='star'?'瑶光':state.mode==='singularity'?SINGULARITY.name:state.mode==='moon'?currentBody()?.def.moons[state.moon]?.title||'卫星':currentBody()?.def.name||'天体'}`);else hideFlightStatus(true);
  if(!duration){camera.position.copy(position);controls.target.copy(target);controls.update();transition=null;resetLens();}
  lastMovement.copy(targetPosition());
 }
@@ -374,6 +441,16 @@ function updateLabels(){
   // Clear the disc on approach: offset by the projected stellar radius like planet labels.
   const starRadius=5.1/camera.position.distanceTo(star.position)*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
   starLabel.style.left=s.x+'px';starLabel.style.top=(s.y+Math.max(42,starRadius+18))+'px';}
+ if(blackHole&&blackHoleLabel){
+  const show=!clean&&state.mode!=='singularity';const bp=projected(blackHole.surface);
+  const foreground=currentBody(),towards=bp.world.clone().sub(camera.position).normalize(),delta=foreground?.root.position.clone().sub(camera.position),along=delta?.dot(towards);
+  const occluded=foreground&&along>0&&along<bp.world.distanceTo(camera.position)&&delta.addScaledVector(towards,-along).length()<foreground.def.radius*1.05;
+  const bhR=SINGULARITY.radius*2.1/camera.position.distanceTo(blackHole.root.position)*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
+  const bhTag=cosmicEvents?.overrideBodies?`${cosmicEvents.liveDistanceAu.toFixed(1)} AU · 切入`:`${SINGULARITY.au} AU`;
+  const bhSmall=blackHoleLabel.querySelector('small');if(bhSmall&&bhSmall.textContent!==bhTag)bhSmall.textContent=bhTag;
+  blackHoleLabel.hidden=!show||occluded||bp.z>1||bp.z<-1||bp.x<25||bp.x>innerWidth-85||bp.y<135||bp.y>innerHeight-140;
+  blackHoleLabel.style.left=bp.x+'px';blackHoleLabel.style.top=(bp.y+Math.max(24,bhR+16))+'px';
+ }
  for(const b of bodies){
   const show=!clean&&(state.mode==='system'||state.planet!==b.def.id);const pos=projected(b.surface);
   const foreground=currentBody(),towards=pos.world.clone().sub(camera.position).normalize(),delta=foreground?.root.position.clone().sub(camera.position),along=delta?.dot(towards);
@@ -384,8 +461,9 @@ function updateLabels(){
   b.orbit.visible=settings.orbits&&systemFade>.01;
   b.ticks.visible=systemFade>.01;
   b.root.visible=true;
-  b.orbit.material.opacity=LOOK.orbitOpacity*(state.selected===b.def.id?2.3:1)*systemFade;
-  for(const t of b.ticks.children)t.material.opacity=.34*systemFade;
+  const orbitPullFade=cosmicEvents?.overrideBodies?1-Math.min(.84,(cosmicEvents.gravityIntensity||0)*.84):1;
+  b.orbit.material.opacity=LOOK.orbitOpacity*(state.selected===b.def.id?2.3:1)*systemFade*orbitPullFade;
+  for(const t of b.ticks.children)t.material.opacity=.34*systemFade*orbitPullFade;
   for(const m of b.moons){
    m.track.visible=state.planet===b.def.id&&state.mode==='planet'&&settings.orbits;
    const q=projected(m.mesh);const towards=q.world.clone().sub(camera.position).normalize();const toPlanet=b.root.position.clone().sub(camera.position);const along=toPlanet.dot(towards);const occluded=along>0&&along<q.world.distanceTo(camera.position)&&toPlanet.clone().addScaledVector(towards,-along).length()<b.def.radius*1.02;
@@ -428,7 +506,9 @@ function loop(now){
  // Overview idle drift keeps the bodies moving past the 180s stillness timeout.
  const moving=!state.paused&&(now-state.lastActivity<180000||!!drift?.active);
  const fadeTarget=state.mode==='system'?1:0;systemFade+=(fadeTarget-systemFade)*(1-Math.exp(-(dt||1/30)*5));if(Math.abs(fadeTarget-systemFade)<.005)systemFade=fadeTarget;
- if(moving){state.time+=dt*settings.speed;effectTime+=dt;}moveBodies();updateEffects(moving?dt:0);
+ if(moving){state.time+=dt*settings.speed;effectTime+=dt;}
+ cosmicEvents?.update({dt:moving?dt:0,simTime:state.time,speed:settings.speed,effectTime,paused:state.paused,reducedMotion:reduced.matches,transitioning:!!transition,mode:state.mode,hold:!!intro?.active,otherEventActive:!!skyEvents?.active,ambientAllowed:settings.comets});
+ moveBodies();updateEffects(moving?dt:0);
  discoveries?.update({time:effectTime,dt,mode:state.mode,paused:state.paused,cometVisible:!!comet?.visible,sky:settings.sky,reducedMotion:reduced.matches});
  eggs?.update(now);
  if(intro?.phase==='primed'&&$('loading').classList.contains('done'))intro.finish();
@@ -440,7 +520,7 @@ function loop(now){
  else if(state.planet){const pos=targetPosition(),delta=pos.clone().sub(lastMovement);camera.position.add(delta);controls.target.add(delta);lastMovement.copy(pos);}
  if(!transition&&camera.fov!==BASE_FOV){camera.fov+=(BASE_FOV-camera.fov)*Math.min(1,dt*5);if(Math.abs(camera.fov-BASE_FOV)<.02)camera.fov=BASE_FOV;camera.updateProjectionMatrix();}
  drift?.update(dt,state.mode==='system'&&!transition&&!intro?.active&&!reduced.matches&&now-state.lastActivity>DRIFT.idleMs);
- controls.update();updateLabels();intro?.update(now);updateSystemMap();dust?.update({camera,mode:state.mode,dt:moving?dt:0,time:effectTime,sky:settings.sky});skyEvents?.update({dt:moving?dt:0,paused:state.paused,reducedMotion:reduced.matches,transitioning:!!transition,mode:state.mode,planet:state.planet,follow:!!drift?.active,hold:!!intro?.active});if(finish&&!reduced.matches)finish.uniforms.uTime.value=now*.001;if(post)bloom.strength=(LOOK.bloom?.strength??.55)*(state.mode==='star'?.5:1)*(intro?.bloomGain??1);const start=performance.now();render();frameSamples.push(performance.now()-start);if(frameSamples.length>180)frameSamples.shift();
+ controls.update();updateLabels();intro?.update(now);updateSystemMap();dust?.update({camera,mode:state.mode,dt:moving?dt:0,time:effectTime,sky:settings.sky});skyEvents?.update({dt:moving?dt:0,paused:state.paused,reducedMotion:reduced.matches,transitioning:!!transition,mode:state.mode,planet:state.planet,follow:!!drift?.active,hold:!!intro?.active});if(finish){if(!reduced.matches)finish.uniforms.uTime.value=now*.001;const lens=blackHole?blackHole.screenLens(camera):{x:.5,y:.5,radius:0,strength:0};finish.uniforms.uLensPos.value.set(lens.x,lens.y);finish.uniforms.uLensRadius.value=lens.radius;finish.uniforms.uLensStrength.value=lens.strength;finish.uniforms.uAspect.value=innerWidth/Math.max(innerHeight,1);finish.uniforms.uRipple.value=reduced.matches?0:(cosmicEvents?.rippleStrength||0);}if(post)bloom.strength=(LOOK.bloom?.strength??.55)*(state.mode==='star'?.5:state.mode==='singularity'?.62:1)*(intro?.bloomGain??1)+(cosmicEvents?.bloomBoost||0);const start=performance.now();render();frameSamples.push(performance.now()-start);if(frameSamples.length>180)frameSamples.shift();
 }
 function init(){
  try{
@@ -459,12 +539,16 @@ function init(){
   corona=new THREE.Mesh(sphere,coronaMaterial());corona.scale.setScalar(5.75);scene.add(corona);
   halo=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture(),color:0x458fff,transparent:true,opacity:LOOK.haloOpacity*.24,depthWrite:false,blending:THREE.AdditiveBlending}));halo.scale.set(LOOK.haloScale*.92,LOOK.haloScale*.92,1);scene.add(halo);
   PLANETS.forEach(createBody);createEffects();dust=createDust({THREE,scene,LOOK,seeded});
-  skyEvents=createSkyPhenomena({THREE,scene,camera,bodies,seventhLit:()=>!!discoveries?.has('seventh'),onChange:(id,story)=>{const status=$('sky-event-status');status.hidden=!id;status.dataset.event=id||'';if(id&&story){status.querySelector('strong').textContent=story[0];status.querySelector('p').textContent=story[1];}}});
+  blackHole=createBlackHole({THREE,scene,LOOK,hdrBoost});pickables.push(blackHole.surface,blackHole.pickProxy);
+  blackHoleLabel=makeLabel(`${SINGULARITY.name} <small>${SINGULARITY.au} AU</small>`,()=>state.mode==='system'?selectBody(SINGULARITY.id):navigate(SINGULARITY.id),'singularity-label');
+  const updateSkyEventStatus=(id,story)=>{const status=$('sky-event-status');if(id&&story){status.hidden=false;status.dataset.event=id;status.querySelector('strong').textContent=story[0];status.querySelector('p').textContent=story[1];}else if(!skyEvents?.active&&!cosmicEvents?.active){status.hidden=true;status.dataset.event='';}};
+  skyEvents=createSkyPhenomena({THREE,scene,camera,bodies,seventhLit:()=>!!discoveries?.has('seventh'),onChange:updateSkyEventStatus});
+  cosmicEvents=createCosmicEvents({THREE,scene,camera,bodies,blackHole,star,corona,halo,lightPosition,belt:comet.userData.belt,dust,LOOK,hdrBoost,onChange:updateSkyEventStatus});
   discoveries=createDiscoveries({THREE,scene,planets:PLANETS,onReplay:replayDiscovery,onProgress:s=>eggs?.progress(s),onDiscovery:entry=>{$('discovery-note').textContent='观测手记已收录：'+entry.title;const event={'voyager':'constellation','still-comet':'meteors','tides':'aurora','old-signal':'signal'}[entry.id];if(event)skyEvents.queue(event);}});applySettings();moveBodies();ready=true;setupPost();resize();
   drift=createDrift({THREE,camera,controls});
   eggs=createEggs({THREE,scene,camera,controls,bodies,state,discoveries,skyEvents,navigate,toast,reduced,journalSize:JOURNAL_ENTRIES.length,isTransitioning:()=>!!transition,isDrifting:()=>!!drift?.active,pixelRatio:()=>renderer.getPixelRatio(),closeRig:()=>({height:LOOK.closeHeight,distance:mobile()?9.5:LOOK.closeDistance,offset:mobile()?0:1.12,drop:mobile()?1.05:0})});
   if(INTRO_WANTED){
-   intro=createIntro({THREE,scene,camera,controls,renderer,star,corona,halo,bodies,starField,belt:comet.userData.belt,LOOK,skyIntensity:()=>LOOK.skyIntensity*settings.sky,haloOpacity:()=>LOOK.haloOpacity*(post?.13:.24),
+   intro=createIntro({THREE,scene,camera,controls,renderer,star,corona,halo,bodies,blackHole,starField,belt:comet.userData.belt,LOOK,skyIntensity:()=>LOOK.skyIntensity*settings.sky,haloOpacity:()=>LOOK.haloOpacity*(post?.13:.24),
     onEnd:()=>{if(!transition)controls.enabled=true;state.lastActivity=performance.now();}});
    intro.prime();
   }
@@ -478,6 +562,6 @@ function init(){
   renderer.domElement.addEventListener('webglcontextrestored',()=>location.reload());
  }catch(e){console.error(e);failed=true;$('loading').classList.add('done');$('fallback').hidden=false;discoveries ||= createDiscoveries({planets:PLANETS});}
 }
-window.observatory={get ready(){return ready},get mode(){return state.mode},get time(){return state.time},get failed(){return failed},get intro(){return intro?.phase||'off'},get drifting(){return !!drift?.active},metrics(){const stats=a=>{const s=[...a].sort((a,b)=>a-b);return{samples:a.length,meanMs:+(a.reduce((x,y)=>x+y,0)/(a.length||1)).toFixed(2),p95Ms:+(s[Math.floor(s.length*.95)]||0).toFixed(2)}};return{renderSubmission:stats(frameSamples),frameInterval:stats(intervalSamples),pixelRatio:renderer?.getPixelRatio(),drawCalls:renderer?.info.render.calls,triangles:renderer?.info.render.triangles,post,bloom:post?{strength:bloom.strength,radius:bloom.radius,threshold:bloom.threshold}:null,frameCap,gpu:gpuName,renderer:renderer?.getContext().getParameter(renderer.getContext().RENDERER),note:'CPU render submission, not GPU completion; frame interval depends on hardware.'};}};
+window.observatory={get ready(){return ready},get mode(){return state.mode},get time(){return state.time},get failed(){return failed},get intro(){return intro?.phase||'off'},get drifting(){return !!drift?.active},get cosmicEvent(){return cosmicEvents?.active||null},metrics(){const stats=a=>{const s=[...a].sort((a,b)=>a-b);return{samples:a.length,meanMs:+(a.reduce((x,y)=>x+y,0)/(a.length||1)).toFixed(2),p95Ms:+(s[Math.floor(s.length*.95)]||0).toFixed(2)}};return{renderSubmission:stats(frameSamples),frameInterval:stats(intervalSamples),pixelRatio:renderer?.getPixelRatio(),drawCalls:renderer?.info.render.calls,triangles:renderer?.info.render.triangles,post,bloom:post?{strength:bloom.strength,radius:bloom.radius,threshold:bloom.threshold}:null,frameCap,gpu:gpuName,renderer:renderer?.getContext().getParameter(renderer.getContext().RENDERER),note:'CPU render submission, not GPU completion; frame interval depends on hardware.'};}};
 init();
 $('retry-assets').onclick=()=>location.reload();

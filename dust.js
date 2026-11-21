@@ -14,8 +14,16 @@ function palette(LOOK){
  return{dust:[.70,.84,1.0],cloud:[.34,.52,.90],accent:[.52,.42,.86],gain:1};
 }
 
-const vertexShader=`attribute float size;attribute float seed;uniform float uScale,uMaxSize,uTime;varying vec3 vColor;varying float vSeed;varying float vFade;
-void main(){vColor=color;vSeed=seed;vec4 mv=modelViewMatrix*vec4(position,1.);
+const vertexShader=`attribute float size;attribute float seed;uniform float uScale,uMaxSize,uTime,uGravWave,uGravPhase,uGravStrength;uniform vec3 uGravOrigin;varying vec3 vColor;varying float vSeed;varying float vFade;
+void main(){vSeed=seed;vec3 pos=position;float boost=1.;
+if(uGravStrength>.001){
+ vec3 rel=pos-uGravOrigin;float d=length(rel);vec3 dir=rel/max(d,.001);
+ float env=exp(-pow((d-uGravWave-65.)/55.,2.));
+ float pull=sin((d-uGravWave)*.075-uGravPhase*.4)*env*uGravStrength;
+ pos-=dir*(pull*4.2);pos.y+=cos(seed*18.+uGravPhase)*env*uGravStrength*2.2;
+ boost+=env*uGravStrength*.42;
+}
+vColor=color*boost;vec4 mv=modelViewMatrix*vec4(pos,1.);
 float px=size*uScale/max(-mv.z,1.);
 // Sub-pixel points flicker or vanish; keep >=1.4px and fade them instead.
 vFade=clamp(px/1.4,0.,1.);gl_PointSize=clamp(px,1.4,uMaxSize);
@@ -68,7 +76,7 @@ export function createDust({THREE,scene,LOOK,seeded}){
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
   g.setAttribute('size',new THREE.Float32BufferAttribute(size,1));g.setAttribute('seed',new THREE.Float32BufferAttribute(seed,1));
-  const uniforms={uOpacity:{value:0},uScale:{value:500},uMaxSize:{value:s.max},uTime:{value:0}};
+  const uniforms={uOpacity:{value:0},uScale:{value:500},uMaxSize:{value:s.max},uTime:{value:0},uGravOrigin:{value:new THREE.Vector3()},uGravWave:{value:0},uGravPhase:{value:0},uGravStrength:{value:0}};
   const mat=new THREE.ShaderMaterial({uniforms,vertexShader,fragmentShader:s.frag,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
   const points=new THREE.Points(g,mat);points.frustumCulled=false;points.renderOrder=-1;scene.add(points);
   layers.push({points,uniforms,spec:s});
@@ -76,6 +84,14 @@ export function createDust({THREE,scene,LOOK,seeded}){
  let fade=1;
  return{
   layers,
+  setGravity({origin,waveR=0,phase=0,strength=0}={}){
+   for(const l of layers){
+    if(origin)l.uniforms.uGravOrigin.value.copy(origin);
+    l.uniforms.uGravWave.value=waveR;
+    l.uniforms.uGravPhase.value=phase;
+    l.uniforms.uGravStrength.value=strength;
+   }
+  },
   update({camera,mode,dt=0,time=0,sky=1}){
    const target=mode==='system'?1:.3;
    fade+=(target-fade)*(1-Math.exp(-(dt||1/30)*1.6));

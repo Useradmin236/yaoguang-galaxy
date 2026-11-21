@@ -11,7 +11,8 @@
 | `discoveries.js` / `discovery.css` | 观测手记、天象奖励与探索反馈 |
 | `eggs.js` / `eggs.css` | 后四则手记（灯火、晨昏线、漂流、第七星）的触发与重看 |
 | `intro.js` | 开场序列与全景闲置漂移 |
-| `dust.js` | 多层视差星际尘埃 |
+| `dust.js` | 多层视差星际尘埃（含引力场扰动耦合） |
+| `cosmic.js` | 远距暗伴体黑洞「归墟」（含希尔稳定界与潮汐尘埃流）、黑洞引力牵引 N-body 演练（洛希瓣恒星吸积流与双引力势井网格）及远空超新星爆发 |
 | `vendor/postprocessing/`、`vendor/shaders/` | 来自 three `examples/jsm` 的 HDR 后期链（泛光、输出通道） |
 | `gallery.html` | 实际渲染截图对比 |
 | `vendor/` | 本地依赖、字体、纹理、肖像与预览 |

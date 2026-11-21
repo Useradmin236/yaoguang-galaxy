@@ -35,26 +35,91 @@
  <div id="fallback" role="status" hidden>三维画面暂时无法显示，仍可使用星球导航和项目入口。</div>
  <div id="asset-warning" role="status" hidden><span>部分星图素材尚未加载，可先使用项目入口。</span><button id="retry-assets">重试加载</button></div>
  <div id="loading"><span class="loader-light" aria-hidden="true"><i></i></span><span>正在展开星图</span></div>
- <button id="play-toggle" aria-controls="play-panel" aria-expanded="false">☷ <span>星系实验室</span></button>
+ <button id="play-toggle" aria-controls="play-panel" aria-expanded="false"><span class="toggle-icon" aria-hidden="true">☷</span><span>星系实验室</span></button>
  <aside id="play-panel" aria-label="星系实验室" hidden>
-  <div class="play-heading"><h2>星系实验室</h2><button id="play-close" aria-label="关闭实验室">×</button></div>
-  <p class="play-intro">拨动时间，给星海一点小小的变化。</p>
-  <label class="range-label" for="time-scale">时间流速 <output id="time-output">1×</output></label><input id="time-scale" type="range" min="0.1" max="8" step="0.1" value="1">
-  <p class="control-note">统一加速六条轨道，保留公转比例。</p>
-  <label class="range-label" for="sky-strength">银河亮度 <output id="sky-output">100%</output></label><input id="sky-strength" type="range" min="0" max="1.8" step="0.1" value="1">
-  <div class="switches"><label><input id="show-orbits" type="checkbox" checked>轨道线</label><label><input id="show-labels" type="checkbox" checked>天体名</label><label><input id="show-comets" type="checkbox" checked>偶遇彗星</label></div>
-  <div class="control-rule"></div>
-  <label for="tune-planet">调整一颗行星</label><select id="tune-planet" aria-label="调整行星"></select>
-  <label class="range-label" for="orbit-radius">轨道半径 <output id="orbit-output"></output></label><input id="orbit-radius" type="range" min="0.25" max="6" step="0.01">
-  <p id="period-output" class="control-note"></p>
-  <label class="range-label" for="cloud-cover">云层浓度 <output id="cloud-output"></output></label><input id="cloud-cover" type="range" min="0" max="1" step="0.05">
-  <label class="range-label" for="moon-size">卫星大小 <output id="moon-output">100%</output></label><input id="moon-size" type="range" min="0.5" max="1.4" step="0.05" value="1">
-  <div class="control-rule"></div>
-  <div class="play-actions"><button id="summon-comet">唤来彗星</button><button id="sister-stars">蒹葭回响</button><button id="top-view">俯瞰星系</button></div>
-  <div class="control-rule"></div><p class="control-note">在银河里，偶遇四种光。</p>
-  <div class="play-actions sky-actions"><button id="meteor-shower">等一场流星雨</button><button id="trace-constellation">寻找北斗</button><button id="polar-lights">聆汐的极光</button><button id="ice-signal">冰下的信号</button></div>
-  <p id="discovery-note" aria-live="polite" class="control-note">有些故事，藏在星星的名字里。</p>
-  <button id="reset-settings" class="text-button">恢复全部默认</button><p class="control-note">调整仅保存在本机浏览器。</p>
+  <div class="lab-head play-heading">
+   <div>
+    <p class="lab-kicker">ALKAID · OBSERVATORY LAB</p>
+    <h2>星系实验室</h2>
+    <p class="play-intro">拨动时间流速、重排轨道，或在深空演练引力牵引与核坍缩。</p>
+   </div>
+   <button id="play-close" type="button" aria-label="关闭实验室">×</button>
+  </div>
+  <div class="lab-grid">
+   <div class="lab-col">
+    <section class="lab-card" aria-label="时间与星海">
+     <h3 class="lab-section-title"><span>01</span>时间与星海</h3>
+     <div class="lab-field">
+      <label class="range-label" for="time-scale"><span>时间流速</span><output id="time-output">1.0×</output></label>
+      <input id="time-scale" type="range" min="0.1" max="8" step="0.1" value="1">
+      <p class="control-note">统一加速六条轨道，保留开普勒公转比例。</p>
+     </div>
+     <div class="lab-field">
+      <label class="range-label" for="sky-strength"><span>银河亮度</span><output id="sky-output">100%</output></label>
+      <input id="sky-strength" type="range" min="0" max="1.8" step="0.1" value="1">
+     </div>
+     <div class="switches" role="group" aria-label="场景图层">
+      <label class="switch-pill"><input id="show-orbits" type="checkbox" checked><span>轨道线</span></label>
+      <label class="switch-pill"><input id="show-labels" type="checkbox" checked><span>天体名</span></label>
+      <label class="switch-pill"><input id="show-comets" type="checkbox" checked><span>偶遇彗星</span></label>
+     </div>
+    </section>
+    <section class="lab-card" aria-label="行星参数">
+     <div class="lab-section-row">
+      <h3 class="lab-section-title"><span>02</span>单星调校</h3>
+      <label class="planet-picker" for="tune-planet"><span class="picker-label">目标</span><select id="tune-planet" aria-label="调整行星"></select></label>
+     </div>
+     <div class="lab-field">
+      <label class="range-label" for="orbit-radius"><span>轨道半径</span><output id="orbit-output"></output></label>
+      <input id="orbit-radius" type="range" min="0.25" max="6" step="0.01">
+      <p id="period-output" class="control-note"></p>
+     </div>
+     <div class="lab-field">
+      <label class="range-label" for="cloud-cover"><span>云层浓度</span><output id="cloud-output"></output></label>
+      <input id="cloud-cover" type="range" min="0" max="1" step="0.05">
+     </div>
+     <div class="lab-field">
+      <label class="range-label" for="moon-size"><span>卫星大小</span><output id="moon-output">100%</output></label>
+      <input id="moon-size" type="range" min="0.5" max="1.4" step="0.05" value="1">
+     </div>
+    </section>
+   </div>
+   <div class="lab-col">
+    <section class="lab-card lab-card-cosmic" aria-label="深空极端天象">
+     <h3 class="lab-section-title"><span>03</span>深空极端天象</h3>
+     <p class="control-note lab-card-note">观测 185 AU 外的暗伴体，或实测引力失稳与核坍缩。</p>
+     <div class="play-actions cosmic-actions">
+      <button id="visit-blackhole" type="button"><span class="action-mark" aria-hidden="true">◉</span><span class="action-copy"><strong>归墟 · 暗伴体</strong><small>近景引力透镜</small></span></button>
+      <button id="trigger-gravity" type="button"><span class="action-mark" aria-hidden="true">◎</span><span class="action-copy"><strong>黑洞引力牵引</strong><small>拖拽恒星与六星</small></span></button>
+      <button id="trigger-supernova" type="button"><span class="action-mark" aria-hidden="true">✦</span><span class="action-copy"><strong>远空超新星</strong><small>激波与星周光环</small></span></button>
+     </div>
+    </section>
+    <section class="lab-card" aria-label="星海四光">
+     <h3 class="lab-section-title"><span>04</span>星海四光</h3>
+     <div class="play-actions sky-actions">
+      <button id="meteor-shower" type="button">等一场流星雨</button>
+      <button id="trace-constellation" type="button">寻找北斗</button>
+      <button id="polar-lights" type="button">聆汐的极光</button>
+      <button id="ice-signal" type="button">冰下的信号</button>
+     </div>
+    </section>
+    <section class="lab-card" aria-label="快捷观测">
+     <h3 class="lab-section-title"><span>05</span>快捷视角</h3>
+     <div class="play-actions quick-actions">
+      <button id="summon-comet" type="button">唤来彗星</button>
+      <button id="sister-stars" type="button">蒹葭回响</button>
+      <button id="top-view" type="button">俯瞰星系</button>
+     </div>
+    </section>
+   </div>
+  </div>
+  <div class="lab-foot">
+   <p id="discovery-note" aria-live="polite" class="control-note">有些故事，藏在星星的名字里。</p>
+   <div class="lab-foot-actions">
+    <span class="lab-storage-hint">仅存本机</span>
+    <button id="reset-settings" type="button" class="text-button">恢复全部默认</button>
+   </div>
+  </div>
  </aside>
  <div id="flight-status" role="status" aria-live="polite" hidden></div>
  <aside id="sky-event-status" role="status" aria-live="polite" hidden><div><strong></strong><button id="sky-event-stop" aria-label="收起星象">×</button></div><p></p></aside>

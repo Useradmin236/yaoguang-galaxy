@@ -305,7 +305,7 @@ async function runChecks() {
   const bbStats = await page.evaluate(() => window.observatory.sandbox.stats());
   report.metrics.bigBang = bbStats;
   assert.ok(bbStats.bigBangs >= 1, 'Big Bang rebirth must execute');
-  assert.equal(bbStats.eggCount, bbStats.totalEggs, `all ${bbStats.totalEggs} sandbox Easter eggs should be unlocked (got ${bbStats.unlockedEggs.join(', ')})`);
+  assert.ok(bbStats.eggCount >= 5 && bbStats.unlockedEggs.includes('big-bang'), `all 5 Phase 2 sandbox Easter eggs should be unlocked (got ${bbStats.unlockedEggs.join(', ')})`);
   assert.ok(bbStats.activeDebris >= 800, `Big Bang must unleash cosmic dawn debris (got ${bbStats.activeDebris})`);
   assert.ok(bbStats.totalBodies >= 10, `Big Bang must birth newborn central star + proto-planetary disk (got ${bbStats.totalBodies})`);
   await page.screenshot({ path: path.join(OUT, '12-big-bang-rebirth.png') });
@@ -502,7 +502,139 @@ async function runChecks() {
   report.screenshots.push('16-phase3b-radar-compass-edge-ring.png');
   mark('phase3b-polar-au-radar-edge-indicators-and-ring');
 
-  // 17. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
+  // 17. NEW Phase 3.1: Unrestricted Direct Numeric Inputs (Inspector + Laws + Speed + Vector Foldout)
+  await page.click('#sb-reset-btn');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().alivePlanets === 6, null, { timeout: 5000 });
+  await page.click('#sb-laws-btn');
+  await page.waitForSelector('#sb-laws-bar', { state: 'visible' });
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setSpeed(0);
+   sb.selectEntity('mingai');
+   sb.setEntityNoBreakup('mingai', true);
+  });
+  await page.waitForSelector('#sb-inspector', { state: 'visible' });
+  // Type extreme values directly into the inline numeric input fields!
+  const typeNum = async (sel, val) => {
+   await page.click(sel);
+   await page.fill(sel, String(val));
+   await page.press(sel, 'Enter');
+  };
+  await typeNum('#sb-gravity-num', '12');
+  await typeNum('#sb-planet-grav-num', '40');
+  await typeNum('#sb-bh-mass-num', '220');
+  await typeNum('#sb-insp-mass-num', '45');
+  await typeNum('#sb-insp-radius-num', '26');
+  await typeNum('#sb-insp-temp-num', '12000');
+  await page.click('#sb-vec-toggle');
+  await page.waitForSelector('#sb-vec-box', { state: 'visible' });
+  await typeNum('#sb-vec-px', '88');
+  await typeNum('#sb-vec-vy', '65');
+  await typeNum('#sb-speed-num', '250');
+  const freeNumRes = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   const st = sb.stats();
+   const m = st.entities.find(e => e.id === 'mingai');
+   return {
+    timeScale: sb.timeScale,
+    gravityScale: sb.gravityScale,
+    planetGravityBoost: sb.planetGravityBoost,
+    bhMass: sb.bhMass,
+    mass: m?.mass,
+    radius: m?.radius,
+    temp: m?.temperature,
+    posX: m?.pos?.[0],
+    alive: !!m
+   };
+  });
+  report.metrics.phase31FreeNumeric = freeNumRes;
+  assert.equal(freeNumRes.timeScale, 250, `free speed input must allow >100x (got ${freeNumRes.timeScale})`);
+  assert.equal(freeNumRes.gravityScale, 12, `free gravity input must allow >5x (got ${freeNumRes.gravityScale})`);
+  assert.equal(freeNumRes.planetGravityBoost, 40, `free planetGravityBoost must allow >25x (got ${freeNumRes.planetGravityBoost})`);
+  assert.equal(freeNumRes.bhMass, 220, `free BH mass input must allow >100 M☉ (got ${freeNumRes.bhMass})`);
+  assert.equal(freeNumRes.alive, true, 'breakup-locked 45 M☉ custom planet must survive without forced collapse');
+  assert.equal(freeNumRes.mass, 45, `free entity mass input must accept 45 M☉ (got ${freeNumRes.mass})`);
+  assert.equal(freeNumRes.radius, 26, `free entity radius input must accept 26 R (got ${freeNumRes.radius})`);
+  assert.equal(freeNumRes.temp, 12000, `free entity temp input must accept 12000 K (got ${freeNumRes.temp})`);
+  assert.ok(Math.abs(freeNumRes.posX - 88) < 2, `vector X direct input must move body to X=88 (got ${freeNumRes.posX})`);
+  await page.click('#sb-laws-btn'); // close laws drawer cleanly
+  mark('phase31-free-numeric-inputs-and-vector-editor');
+
+  // 18. NEW Phase 3.1: Pairwise Orbital Director (Mutual Orbit e=0.45 Auto-Radius, Escape, Directed Collide, 1-Click Slingshot & Moon System)
+  await page.click('#sb-reset-btn');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().alivePlanets === 6, null, { timeout: 5000 });
+  const pairOrbitSetup = await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setTool('orbit');
+   sb.setSpeed(1.2);
+   sb.setPlanetGravityBoost(6.0);
+   const a = sb.spawnBody('rocky', [70, 0, 20], [0, 0, 0], { mass: 0.16, radius: 1.9, name: '互绕甲' });
+   const b = sb.spawnBody('rocky', [132, 0, 20], [0, 0, 0], { mass: 0.14, radius: 1.8, name: '互绕乙' });
+   sb.selectEntity(a.id);
+   sb.setPairTarget(b.id);
+   sb.setPairMode('orbit');
+   const ok = sb.commandPairMutualOrbit(a.id, b.id, { eccentricity: 0.45, radius: null });
+   const dAfter = Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z);
+   sb.focusEntity(a.id);
+   return { ok, idA: a.id, idB: b.id, dAfter };
+  });
+  await page.waitForTimeout(750);
+  const pairOrbitAfter = await page.evaluate(({ idA, idB }) => {
+   const st = window.observatory.sandbox.stats();
+   const a = st.entities.find(e => e.id === idA);
+   const b = st.entities.find(e => e.id === idB);
+   const dist = (a && b) ? Math.hypot(a.pos[0] - b.pos[0], a.pos[2] - b.pos[2]) : 999;
+   return { bothAlive: !!(a && b), dist, pairBoxVisible: !document.getElementById('sb-pair-box').hidden };
+  }, { idA: pairOrbitSetup.idA, idB: pairOrbitSetup.idB });
+  assert.equal(pairOrbitSetup.ok, true, 'commandPairMutualOrbit must succeed');
+  assert.ok(pairOrbitSetup.dAfter < 45 && pairOrbitSetup.dAfter > 10, `auto-adjusted mutual orbit radius must be cozy & safe (got ${pairOrbitSetup.dAfter.toFixed(1)})`);
+  assert.equal(pairOrbitAfter.bothAlive, true, 'mutual elliptical binary must remain intact');
+  assert.ok(pairOrbitAfter.dist < 85, `mutual binary must remain gravitationally bound (dist=${pairOrbitAfter.dist.toFixed(1)})`);
+  assert.equal(pairOrbitAfter.pairBoxVisible, true, '#sb-pair-box must be visible in inspector');
+  await page.screenshot({ path: path.join(OUT, '17-phase31-pairwise-orbit-director.png') });
+  report.screenshots.push('17-phase31-pairwise-orbit-director.png');
+
+  // Escape + Directed Collide + 1-Click Slingshot + Moon System!
+  const pairEscapeAndCollide = await page.evaluate(({ idA, idB }) => {
+   const sb = window.observatory.sandbox;
+   const escOk = sb.commandPairEscape(idA, idB, { mult: 1.8 });
+   const aAfterEsc = sb.stats().entities.find(e => e.id === idA);
+   // Spawn two planets for directed collision test
+   const cA = sb.spawnBody('rocky', [20, 14, -55], [0, 0, 0], { mass: 0.18, radius: 2.3, name: '拦截弹' });
+   const cB = sb.spawnBody('rocky', [44, 14, -55], [0, 0, 5.5], { mass: 0.16, radius: 2.2, name: '移动靶' });
+   const colOk = sb.commandPairCollide(cA.id, cB.id, { oblique: false, speedMult: 1.2 });
+   // Spawn 4-moon system around suxian
+   const moonsMade = sb.spawnMoonSystem('suxian', 4);
+   sb.setSpeed(1.8);
+   return { escOk, escSpd: aAfterEsc?.speed || 0, colOk, moonsMade };
+  }, { idA: pairOrbitSetup.idA, idB: pairOrbitSetup.idB });
+  assert.equal(pairEscapeAndCollide.escOk, true, 'commandPairEscape must succeed');
+  assert.ok(pairEscapeAndCollide.escSpd > 8, `escape maneuver must impart brisk velocity (got ${pairEscapeAndCollide.escSpd})`);
+  assert.equal(pairEscapeAndCollide.colOk, true, 'commandPairCollide must succeed');
+  assert.equal(pairEscapeAndCollide.moonsMade, 4, 'spawnMoonSystem must spawn 4 satellites');
+  await page.waitForFunction(() => window.observatory.sandbox.stats().impacts >= 1, null, { timeout: 10000 });
+
+  // 1-Click Gravitational Slingshot around Guixu Black Hole!
+  await page.evaluate(() => {
+   const sb = window.observatory.sandbox;
+   sb.setSpeed(1.8);
+   const pr = sb.spawnBody('probe', [0, 0, 50], [0, 0, 0], { name: '弹弓一号' });
+   sb.selectEntity(pr.id);
+   sb.setPairTarget('guixu');
+   sb.setPairMode('slingshot');
+   sb.commandPairSlingshot(pr.id, 'guixu', { safety: 1.25, follow: true });
+  });
+  await page.waitForFunction(() => window.observatory.sandbox.stats().slingshots >= 1, null, { timeout: 12000 });
+  await page.waitForTimeout(350);
+  const slingshot31 = await page.evaluate(() => window.observatory.sandbox.stats());
+  report.metrics.phase31Pairwise = { pairOrbitSetup, pairOrbitAfter, pairEscapeAndCollide, slingshots: slingshot31.slingshots, impacts: slingshot31.impacts, eggCount: slingshot31.eggCount, totalEggs: slingshot31.totalEggs };
+  assert.ok(slingshot31.slingshots >= 1, '1-click commandPairSlingshot must achieve real +Δv slingshot boost');
+  assert.equal(slingshot31.eggCount, slingshot31.totalEggs, `all ${slingshot31.totalEggs}/${slingshot31.totalEggs} sandbox Easter eggs must be unlocked (got ${slingshot31.unlockedEggs.join(', ')})`);
+  await page.screenshot({ path: path.join(OUT, '18-phase31-pairwise-slingshot-moons.png') });
+  report.screenshots.push('18-phase31-pairwise-slingshot-moons.png');
+  mark('phase31-pairwise-director-orbit-escape-collide-slingshot-moons-and-all-8-eggs');
+
+  // 19. Grab tool state & Clean Exit back to Observatory (restoring pan=false & hiding all sandbox chrome)
   await page.click('[data-tool="grab"]');
   const toolAfter = await page.evaluate(() => window.observatory.sandbox.tool);
   assert.equal(toolAfter, 'grab', 'grab tool button should switch mode');

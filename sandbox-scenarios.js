@@ -59,7 +59,10 @@ export const SANDBOX_EGGS = Object.freeze([
  { id: 'slingshot-master', title: '洛希险胜 · 引力弹弓', desc: '探测器或行星贴近大质量天体借力加速至 ≥1.85× 初始速率' },
  { id: 'self-collapse', title: '造物主坍缩', desc: '在微调面板调大质量，亲手点燃行星成星或令恒星坍缩为黑洞' },
  { id: 'anti-gravity', title: '斥力星花 · 反重力场', desc: '将引力倍率推入负值区域，翻转万有引力让星系绚丽炸散' },
- { id: 'big-bang', title: '万物归墟 · 奇点重开', desc: '触发奇点大爆炸重开新生宇宙（或令黑洞吞尽所有星辰）' }
+ { id: 'big-bang', title: '万物归墟 · 奇点重开', desc: '触发奇点大爆炸重开新生宇宙（或令黑洞吞尽所有星辰）' },
+ { id: 'binary-dance', title: '双星华尔兹', desc: '用「双体互绕」将两颗天体编排成椭圆共同质心双星共舞' },
+ { id: 'lord-of-rings', title: '指环之主', desc: '令单颗行星同时拥有持久立体星环与 ≥3 颗环绕卫星' },
+ { id: 'warp-drive', title: '曲速破界', desc: '通过自由数值将任意天体推破 1000 km/s 或将时间流速推过 200×' }
 ]);
 
 export function computeEraTag(planetPos, aliveStars) {
